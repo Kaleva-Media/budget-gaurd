@@ -52,7 +52,7 @@ weakening; it remains enabled. Owner authorization is required to change it.
 Cloudflare email-Worker automated publishing still needs a scoped credential;
 its CI dry run is not a live deployment or proof of invoice delivery.
 
-Local controller tests (12), domain tests (5), email tests (5), Deno tests (4),
+Local controller tests (13), domain tests (5), email tests (5), Deno tests (4),
 type checks, configured web build, both headless browser modes and Android
 parser/app unit tests passed. The Worker dry-run bundle passed without publishing.
 Local Supabase tests were initially unavailable because Docker's API returned

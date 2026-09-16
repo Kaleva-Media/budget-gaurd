@@ -67,7 +67,9 @@ Studio ports, attach public/host networks, or proxy a database through Nginx.
 BudgetGuard's pooler/gateway must remain loopback-only; only the HTTPS API is
 public. Client keys are publishable, never service-role/database credentials.
 All public app tables need RLS, views need `security_invoker=true`, and invoice
-documents must remain private.
+documents must remain private. CI packaging and the server reject hidden/key
+files and common private credentials/privileged server JWTs in static assets.
+This narrow scan is a backstop, not a complete secret-detection system.
 
 ## Recovery
 

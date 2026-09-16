@@ -4,6 +4,7 @@ import os
 import re
 import tarfile
 from pathlib import Path
+from policy import scan_sensitive
 
 revision = os.environ["GITHUB_SHA"]
 if not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -17,5 +18,8 @@ with tarfile.open("web-deploy.tar.gz", "w:gz") as bundle:
         if path.is_symlink():
             raise ValueError("No symlinks in deployment bundle")
         if path.is_file():
+            if any(part.startswith(".") for part in path.relative_to(dist).parts) or path.suffix.lower() in (".pem", ".key", ".p12", ".jks", ".keystore"):
+                raise ValueError("Hidden files and credentials cannot enter a public bundle")
+            scan_sensitive(path.read_bytes())
             bundle.add(path, arcname="dist/" + str(path.relative_to(dist)), recursive=False)
 print("Packaged web build for", revision)

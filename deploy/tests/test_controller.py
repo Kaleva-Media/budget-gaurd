@@ -1,4 +1,5 @@
 import importlib.util
+import base64
 import io
 import json
 import sys
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
-from policy import validate_migration
+from policy import scan_sensitive, validate_migration
 
 spec = importlib.util.spec_from_file_location("controller", HERE / "kaleva/command.py")
 controller = importlib.util.module_from_spec(spec)
@@ -48,6 +49,15 @@ class ControllerTests(unittest.TestCase):
 
     def test_additive_migration_allowed(self):
         validate_migration("alter table public.accounts add column label text; create index accounts_label_idx on public.accounts(label);")
+
+    def test_server_credentials_cannot_enter_public_bundle(self):
+        def jwt(role):
+            payload = base64.urlsafe_b64encode(json.dumps({"role": role}).encode()).rstrip(b"=")
+            return b"eyJhbGciOiJIUzI1NiJ9." + payload + b".syntheticSignature"
+        scan_sensitive(jwt("anon"))
+        for data in [jwt("service_role"), jwt("supabase_admin"), b"sb_" + b"secret_" + b"a" * 24, b"-----BEGIN " + b"PRIVATE KEY-----"]:
+            with self.assertRaises(ValueError):
+                scan_sensitive(data)
 
     def test_unsafe_migrations_rejected(self):
         examples = ["drop table public.accounts;", "truncate public.accounts;", "delete from public.accounts;", "commit;", "select 1; COMMIT;", "set role supabase_admin;", "alter user postgres superuser;", "\\! id", "copy t to program 'id';", "alter table t disable row level security;", "create or replace function f() returns void;", "alter table t alter column c type int;", "alter table t add column c text not null;", "grant all on t to anon;", "select * from deployment_control.migrations;", "create index concurrently i on t(c);"]

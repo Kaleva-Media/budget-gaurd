@@ -1,11 +1,26 @@
 """Conservative checks, not a SQL sandbox or a substitute for review."""
 import hashlib
+import base64
 import json
 import re
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SECRET = re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|sb_secret_[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[A-Z0-9]{16}")
+
+
+def scan_sensitive(data):
+    if SECRET.search(data):
+        raise ValueError("Possible private credential")
+    for token in re.finditer(rb"eyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+", data):
+        try:
+            payload = token[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + b"=" * (-len(payload) % 4)))
+        except (ValueError, UnicodeError):
+            continue
+        if isinstance(claims, dict) and claims.get("role") in ("service_role", "supabase_admin"):
+            raise ValueError("Privileged server JWT must not be committed or published")
 
 
 def digest(path):
@@ -66,11 +81,13 @@ def check(root=ROOT, base=None):
                 raise ValueError(f"New migration must sort after main's migrations: {name}")
     # Narrow secret scan. Dedicated security review is still required.
     tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).decode().split("\0")
-    secret = re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|sb_secret_[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[A-Z0-9]{16}")
     for name in filter(None, tracked):
         path = root / name
-        if path.is_file() and secret.search(path.read_bytes()):
-            raise ValueError(f"Possible credential in tracked file: {name}")
+        if path.is_file():
+            try:
+                scan_sensitive(path.read_bytes())
+            except ValueError as error:
+                raise ValueError(f"Possible credential in tracked file: {name}") from error
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from policy import validate_migration
+from policy import scan_sensitive, validate_migration
 
 REPO = "edward-kalevamedia/budget-gaurd"
 DB = "budget-guard-db"
@@ -74,12 +74,11 @@ def safe_extract(data, destination, kind):
         raise ValueError("Archive too large")
     total = 0
     seen = set()
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-        members = archive.getmembers()
-        if len(members) > 3000:
-            raise ValueError("Too many archive members")
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r|gz") as archive:
         source_root = None
-        for member in members:
+        for count, member in enumerate(archive, 1):
+            if count > 3000:
+                raise ValueError("Too many archive members")
             path = PurePosixPath(member.name)
             if path.is_absolute() or ".." in path.parts or not path.parts:
                 raise ValueError("Unsafe archive path")
@@ -95,6 +94,8 @@ def safe_extract(data, destination, kind):
                     raise ValueError("Unexpected source archive root")
                 relative = Path(*path.parts[1:])
             if member.isdir():
+                if member.size:
+                    raise ValueError("Directory payloads are forbidden")
                 continue
             if str(relative) in seen or member.size < 0:
                 raise ValueError("Duplicate/invalid archive member")
@@ -346,6 +347,11 @@ def deploy(revision, upload):
         raise ValueError("Missing built web index")
     if json.loads((staged_web / "version.json").read_text())["revision"] != revision:
         raise ValueError("Uploaded build revision does not match")
+    for asset in staged_web.rglob("*"):
+        if asset.is_file():
+            if any(part.startswith(".") for part in asset.relative_to(staged_web).parts) or asset.suffix.lower() in (".pem", ".key", ".p12", ".jks", ".keystore"):
+                raise ValueError("Hidden files and credential artifacts cannot be published")
+            scan_sensitive(asset.read_bytes())
     recovery = backup(revision)  # Mandatory and restore-tested BEFORE any ledger/schema mutation.
     previous = snapshot_initial()
     manifest = {"revision": revision, "backup": recovery, "previous": previous, "status": "backed_up"}
