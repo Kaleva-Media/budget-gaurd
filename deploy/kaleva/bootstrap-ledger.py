@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from command import STATE, assert_private, assert_schema, backup, migrate, sql
+from command import STATE, assert_private, assert_schema, backup, migrate, save_json, sql
 
 if __name__ == "__main__":
     if os.geteuid() != 0 or len(sys.argv) != 2:
@@ -20,5 +20,5 @@ if __name__ == "__main__":
             sys.exit("Ledger already exists; refusing bootstrap.")
         recovery = backup("baseline")
         names = migrate(Path(sys.argv[1]).resolve(), baseline=True)
-        (STATE / "baseline.json").write_text(json.dumps({"backup": recovery, "adopted": names}, indent=2))
+        save_json(STATE / "baseline.json", {"backup": recovery, "adopted": names})
         print(json.dumps({"historical_migrations_adopted_without_replaying": len(names), "backup_restore_verified": True}))

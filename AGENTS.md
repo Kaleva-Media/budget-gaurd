@@ -67,7 +67,7 @@ supabase db reset
 supabase test db
 ```
 
-`db reset` destroys local database contents. Never run it against production or a user dataset. Discover version-dependent CLI commands with `--help` before use.
+`db reset` destroys local database contents. Never run it against production or a user dataset. The local CLI can bind services to all interfaces: use a private VM/runner with inbound filtering already in place, synthetic data only, and never a public/shared production host. Discover version-dependent CLI commands with `--help` before use.
 
 Run checks relevant to the change and report exactly which ran, passed, failed, or were unavailable. Unit tests do not establish live email delivery, installed-device behaviour, or production RLS correctness.
 

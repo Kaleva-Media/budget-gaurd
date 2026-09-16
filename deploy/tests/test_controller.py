@@ -107,6 +107,7 @@ class ControllerTests(unittest.TestCase):
                 self.assertTrue(text.startswith("begin;"))
                 self.assertTrue(text.rstrip().endswith("commit;"))
                 self.assertIn("insert into deployment_control.migrations", text)
+                self.assertLess(text.index("Deployment security invariant"), text.index("commit;"))
 
     def test_failed_smoke_reactivates_previous_release(self):
         sha = "a" * 40
@@ -136,6 +137,15 @@ class ControllerTests(unittest.TestCase):
                 controller.rollback("previous")
                 backup.assert_not_called()
                 migrate.assert_not_called()
+
+    def test_atomic_state_write_preserves_old_state_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "current.json"
+            path.write_text('{"revision":"old"}')
+            with patch.object(controller.os, "fsync", side_effect=OSError("disk failure")), self.assertRaises(OSError):
+                controller.save_json(path, {"revision": "new"})
+            self.assertEqual(json.loads(path.read_text())["revision"], "old")
+            self.assertEqual(list(Path(directory).glob(".state-*")), [])
 
 
 if __name__ == "__main__":

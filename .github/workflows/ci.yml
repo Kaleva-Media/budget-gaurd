@@ -110,8 +110,23 @@ jobs:
       - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
         with:
           version: 2.95.4
-      - run: supabase start
-      - run: supabase db reset --local
+      - name: Isolate ephemeral local services before startup
+        run: |
+          set -euo pipefail
+          test -z "$(docker ps -aq --filter name=supabase_db_budget-guard)"
+          iface=$(ip -o route show to default | awk '{print $5}' | head -n 1)
+          test -n "$iface"
+          # Docker published ports bypass INPUT; protect forwarded traffic too.
+          sudo iptables -I DOCKER-USER -i "$iface" -j DROP
+          sudo iptables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
+          sudo ip6tables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
+          if sudo ip6tables -S DOCKER-USER >/dev/null 2>&1; then
+            sudo ip6tables -I DOCKER-USER -i "$iface" -j DROP
+          fi
+      - name: Apply every migration to a fresh isolated database
+        # Fresh hosted runner: start already applies the complete migration chain.
+        # Suppress the CLI's ephemeral local secret-key/status output.
+        run: supabase start >/dev/null
       - run: supabase test db
       - if: always()
         run: supabase stop --no-backup

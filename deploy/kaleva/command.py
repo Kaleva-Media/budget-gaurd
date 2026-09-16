@@ -149,6 +149,18 @@ select count(*) from storage.buckets where id='invoice-documents' and not public
         raise ValueError("RLS, invoker views, or private invoice bucket check failed")
 
 
+SCHEMA_GUARD = """do $budgetguard_guard$
+begin
+  if exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind in ('r','p') and not c.relrowsecurity)
+    or exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind='v' and not coalesce(c.reloptions @> array['security_invoker=true'],false))
+    or not exists (select 1 from storage.buckets where id='invoice-documents' and not public)
+  then raise exception 'Deployment security invariant failed; rolling back migrations'; end if;
+end
+$budgetguard_guard$;"""
+
+
 def backup(revision):
     directory = STATE / "backups"
     directory.mkdir(exist_ok=True)
@@ -227,7 +239,9 @@ revoke all on all tables in schema deployment_control from public,anon,authentic
         if not baseline:
             statements.append(path.read_text())
         statements.append(f"insert into deployment_control.migrations(filename,sha256,baseline) values ('{path.name}','{checksum}',{str(baseline).lower()});")
-    statements.extend(["notify pgrst,'reload schema';", "commit;"])
+    # Check BEFORE commit: a new unsafe table/view/bucket never becomes live,
+    # even temporarily. The ledger rolls back with the entire migration batch.
+    statements.extend([SCHEMA_GUARD, "notify pgrst,'reload schema';", "commit;"])
     sql("\n".join(statements))
     return [path.name for path, _ in pending]
 
@@ -238,6 +252,20 @@ def atomic_link(target, link):
         temporary.unlink()
     temporary.symlink_to(target)
     temporary.replace(link)
+
+
+def save_json(path, value):
+    """Durable atomic manifests; never leave a truncated current-release pointer."""
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".state-", delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            json.dump(value, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+            temporary.replace(path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
 
 def activate(state):
@@ -276,7 +304,10 @@ def smoke(revision):
 def snapshot_initial():
     current = STATE / "current.json"
     if current.exists():
-        return json.loads(current.read_text())
+        state = json.loads(current.read_text())
+        if (WEB / "current").resolve() != Path(state["web"]).resolve() or os.readlink(FUNCTION_ROOT / "invoice-ingest") != state["function"]:
+            raise ValueError("Active release differs from recorded state; owner must inspect crash/manual drift before deployment")
+        return state
     target = FUNCTION_ROOT / "invoice-ingest"
     snapshots = FUNCTION_ROOT / ".budgetguard-releases"
     snapshots.mkdir(exist_ok=True)
@@ -288,7 +319,7 @@ def snapshot_initial():
     function = ".budgetguard-releases/before-automation"
     atomic_link(function, target)
     state = {"revision": "before-automation", "web": str((WEB / "current").resolve()), "function": function, "previous": None}
-    current.write_text(json.dumps(state))
+    save_json(current, state)
     return state
 
 
@@ -318,10 +349,10 @@ def deploy(revision, upload):
     recovery = backup(revision)  # Mandatory and restore-tested BEFORE any ledger/schema mutation.
     previous = snapshot_initial()
     manifest = {"revision": revision, "backup": recovery, "previous": previous, "status": "backed_up"}
-    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    save_json(directory / "manifest.json", manifest)
     applied = migrate(source)
     manifest.update({"migrations": applied, "status": "migrated"})
-    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    save_json(directory / "manifest.json", manifest)
     assert_schema()
     web_release = WEB / "releases" / revision
     if web_release.exists():
@@ -339,11 +370,11 @@ def deploy(revision, upload):
     except Exception:
         activate(previous)
         manifest["status"] = "failed_code_rolled_back"
-        (directory / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        save_json(directory / "manifest.json", manifest)
         raise
-    (STATE / "current.json").write_text(json.dumps(state, indent=2))
+    save_json(STATE / "current.json", state)
     manifest["status"] = "healthy"
-    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    save_json(directory / "manifest.json", manifest)
     print(json.dumps({"deployed": revision, "backup_restore_verified": True, "migration_count": len(applied)}))
 
 
@@ -369,7 +400,7 @@ def rollback(target):
     except Exception:
         activate(current)
         raise
-    (STATE / "current.json").write_text(json.dumps(state, indent=2))
+    save_json(STATE / "current.json", state)
     print(json.dumps({"rolled_back_to": state["revision"], "database": "compatible additive schema retained; no data restored"}))
 
 

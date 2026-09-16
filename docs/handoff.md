@@ -52,12 +52,15 @@ weakening; it remains enabled. Owner authorization is required to change it.
 Cloudflare email-Worker automated publishing still needs a scoped credential;
 its CI dry run is not a live deployment or proof of invoice delivery.
 
-Local controller tests (11), domain tests (5), email tests (5), Deno tests (4),
+Local controller tests (12), domain tests (5), email tests (5), Deno tests (4),
 type checks, configured web build, both headless browser modes and Android
 parser/app unit tests passed. The Worker dry-run bundle passed without publishing.
 Local Supabase tests were initially unavailable because Docker's API returned
-500; CI must establish database results. See the PR/latest CI run for full,
-current-commit evidence and any subsequent fixes.
+500. GitHub CI exposed a retired Android action default (`tools` package), now
+corrected to platform-tools. The database migration chain applied successfully,
+but a redundant local reset hit a 502 during restart; CI now checks a fresh
+inbound-firewalled stack directly instead. Database denial tests/latest aggregate
+still require a completed run. See PR #1/latest CI for exact-commit evidence.
 
 ## What the user wants
 

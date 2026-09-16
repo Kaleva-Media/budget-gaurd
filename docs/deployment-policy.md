@@ -44,7 +44,8 @@ Every new deployment follows this order:
 3. Create a protected full database dump, checksum it, and successfully restore
    it into a temporary private test database. Failure stops deployment.
 4. Apply only pending forward migrations and their checksummed ledger in one
-   transaction. Never replay or edit applied migrations.
+   transaction. Verify RLS/views/private-bucket invariants **before commit**, so
+   unsafe schema cannot briefly become live. Never replay or edit applied SQL.
 5. Retain previous web/function copies, switch releases, restart the function
    service, and check public revision/assets/auth health plus private-port/RLS
    conditions. A failed activation/health check attempts automatic code rollback.

@@ -24,6 +24,7 @@ def validate_migration(sql):
         "contract replacement": r"\bcreate\s+or\s+replace\b|\balter\s+column\b|\brename\b",
         "nontransactional migration": r"\bconcurrently\b|\bvacuum\b",
         "anonymous grants": r"\bgrant\b[^;]*\bto\s+(public|anon)\b",
+        "anonymous policy": r"\bcreate\s+policy\b[^;]*\bto\s+(public|anon)\b",
     }
     for name, pattern in rules.items():
         if re.search(pattern, sql, re.I):

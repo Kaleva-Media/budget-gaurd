@@ -16,6 +16,14 @@ fi
 chown root:root /home/budgetguard-deploy
 chmod 755 /home/budgetguard-deploy
 install -d -o root -g root -m 755 /opt/budgetguard-deploy /home/budgetguard-deploy/.ssh
+if [ -f /opt/budgetguard-deploy/command.py ]; then
+  saved=$(mktemp -d /opt/budgetguard-deploy/operator-backup.XXXXXXXX)
+  for previous in command.py policy.py entry.sh bootstrap-ledger.py; do
+    if [ -f "/opt/budgetguard-deploy/$previous" ]; then
+      cp -p "/opt/budgetguard-deploy/$previous" "$saved/$previous"
+    fi
+  done
+fi
 install -o root -g root -m 755 "$source_dir/deploy/kaleva/command.py" /opt/budgetguard-deploy/command.py
 install -o root -g root -m 644 "$source_dir/deploy/policy.py" /opt/budgetguard-deploy/policy.py
 install -o root -g root -m 755 "$source_dir/deploy/kaleva/entry.sh" /opt/budgetguard-deploy/entry.sh
