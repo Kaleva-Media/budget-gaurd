@@ -1,0 +1,22 @@
+{
+  "name": "budget-guard",
+  "private": true,
+  "packageManager": "bun@1.2.20",
+  "workspaces": [
+    "apps/web",
+    "apps/email-ingress",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd=apps/web dev",
+    "build": "bun run --cwd=apps/web build",
+    "check": "bun run --cwd=apps/web check && bun run --cwd=packages/domain check",
+    "test": "bun run --cwd=packages/domain test",
+    "test:android": "apps/android/gradlew -p apps/android :parser:test --no-daemon",
+    "test:email": "bun run --cwd=apps/email-ingress test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/node": "22.20.2"
+  }
+}

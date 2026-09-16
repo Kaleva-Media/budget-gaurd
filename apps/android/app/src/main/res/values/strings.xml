@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assign_selected">Assign selected →</string>
+    <string name="assigning">Assigning…</string>
+    <string name="include_in_safe_to_spend">Include in safe-to-spend</string>
+    <string name="repeat_income_monthly">Repeat this income in future periods</string>
+    <string name="repeat_expense_monthly">Repeat this expense in future periods</string>
+</resources>

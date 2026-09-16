@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "budgetguard-invoice-ingress",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "secrets": {
+    "required": ["INVOICE_INGRESS_PRIVATE_JWK", "SUPABASE_ANON_KEY"]
+  },
+  "vars": {
+    "INVOICE_DOMAIN": "inbox.budget.cloudcomms.co.za",
+    "INGEST_URL": "https://budget.cloudcomms.co.za/functions/v1/invoice-ingest",
+    "MAX_PDF_BYTES": "15728640",
+    "MAX_PDFS_PER_EMAIL": "5"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

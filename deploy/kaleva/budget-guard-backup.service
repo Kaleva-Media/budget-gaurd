@@ -1,0 +1,10 @@
+[Unit]
+Description=BudgetGuard PostgreSQL backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/Databases/supabase-fix/projects/budget-guard/backup-postgres.sh
