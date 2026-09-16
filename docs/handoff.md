@@ -57,10 +57,16 @@ type checks, configured web build, both headless browser modes and Android
 parser/app unit tests passed. The Worker dry-run bundle passed without publishing.
 Local Supabase tests were initially unavailable because Docker's API returned
 500. GitHub CI exposed a retired Android action default (`tools` package), now
-corrected to platform-tools. The database migration chain applied successfully,
-but a redundant local reset hit a 502 during restart; CI now checks a fresh
-inbound-firewalled stack directly instead. Database denial tests/latest aggregate
-still require a completed run. See PR #1/latest CI for exact-commit evidence.
+corrected to platform-tools. A redundant local reset hit a 502 during restart;
+CI now checks a fresh inbound-firewalled stack directly instead. Every suite and
+the aggregate `all-tests` passed on application/controller commit `d4c9508`,
+including migration-chain and cross-user/cross-entity/private-PDF denial tests.
+Evidence: [push CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160606331)
+and [PR CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160609889).
+Any subsequent documentation-only commit must also pass the full latest-commit
+gate; see [PR #1](https://github.com/edward-kalevamedia/budget-gaurd/pull/1) for that
+current status. No merge/deployment bypass was used. Production public auth
+health passed and anonymous bank-account API access was denied.
 
 ## What the user wants
 
