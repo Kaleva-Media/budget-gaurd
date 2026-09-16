@@ -5,10 +5,11 @@
 1. Read `docs/handoff.md` for current status, known blockers, and the next task.
 2. Read `README.md` for setup and `docs/architecture.md` for domain semantics and trust boundaries.
 3. Before production work, read `deploy/kaleva/README.md` and the operational checklist in the handoff.
+   Also read `docs/deployment-policy.md`; its merge, backup, migration and recovery rules are mandatory.
 4. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
 Repository: `https://github.com/edward-kalevamedia/budget-gaurd` (spelling is intentional).
-Primary branch: `main`. Use the user's requested branch/workflow; never force-push by default.
+Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit and one independent approving reviewer; a new push requires a fresh approval.
 
 ## Product intent
 
@@ -78,6 +79,9 @@ Run checks relevant to the change and report exactly which ran, passed, failed, 
 - Do not weaken signature verification, ownership checks, RLS, or private Storage policies to make a test pass. Cross-user and cross-entity access must remain isolated.
 - Do not upload or persist raw SMS, electricity tokens, OTPs, or login links. Signed integer cents, pending-versus-posted semantics, and transfer exclusions are domain invariants.
 - Add forward migrations for schema changes; do not rewrite already-applied production migrations. Verify ownership constraints and security-invoker views.
+- Run `python3 -m unittest discover -s deploy/tests -v` and `python3 deploy/policy.py --base origin/main` for deployment/schema changes. Never edit the approved migration baseline or disable a safety check to pass CI.
+- Web/function releases go through the exact-SHA automated workflow and root-owned forced-command controller. A successful, restore-tested backup is mandatory before migrations. Compatible additive schema is retained during code rollback; destructive database recovery requires a separate authorized maintenance plan.
+- Ordinary agents need non-admin GitHub write access and must not receive general production SSH, Docker access or database/service-role credentials. Stop if the task requires a security exception; do not borrow owner credentials or impersonate an independent reviewer.
 - Production deployment, email routing/DNS changes, key rotation, data mutation, and rollback require user authorization for the current task. Historical authorization in a handoff is not standing permission.
 - Never re-run the production provisioning script over the existing stack, expose loopback database/API ports, enable apex Email Routing MX, or force-push without explicit scope and approval.
 - Keep `docs/handoff.md` updated when status changes. Distinguish source changes, deployment changes, and end-to-end verification; record versions and outcomes without secret values.

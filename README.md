@@ -1,5 +1,10 @@
 # BudgetGuard
 
+Agent and deployment rules: read `AGENTS.md` and
+[`docs/deployment-policy.md`](docs/deployment-policy.md). Production web/function
+releases require latest-commit CI and independent PR approval, a restore-tested
+database backup before migrations, and retained releases for code rollback.
+
 BudgetGuard turns transaction notifications into useful, near-real-time budget guardrails. Its primary experience is an offline-first Android dashboard with on-device SMS collection, paired with a React web companion and a Supabase data layer.
 
 For agent onboarding, start with [AGENTS.md](AGENTS.md) and

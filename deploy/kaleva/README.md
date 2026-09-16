@@ -35,3 +35,53 @@ not enable Email Routing MX records on the apex `cloudcomms.co.za` domain.
 The local backup protects against accidental database loss but is not an
 off-host disaster-recovery copy. Add an encrypted remote backup destination
 before treating this as the only copy of important financial history.
+
+## Guarded web/function deployments
+
+Read `docs/deployment-policy.md` first. After the guardrails PR is reviewed and
+merged, **Deploy web platform** automatically follows successful `main` CI.
+It deploys the configured web artifact and invoice-ingest function from the
+same exact SHA. **Roll back web platform** is dispatched on `main` and requires
+owner approval in `production-rollback`.
+
+Repository variables contain only the public client URL/publishable key.
+Both production environments have a main-only branch allowlist, an encrypted
+`BUDGETGUARD_DEPLOY_KEY`, a pinned `BUDGETGUARD_SSH_KNOWN_HOSTS` secret and a
+`BUDGETGUARD_DEPLOY_HOST` variable. Do not use root/ubuntu's SSH key for CI.
+
+The dedicated `budgetguard-deploy` identity has a root-owned SSH forced command
+and narrow sudo permission. Its allowed commands are `verify`, `deploy <sha>`
+and `rollback <sha|previous>`; uploads can only contain bounded static web files.
+Migration SQL and function source come from GitHub's exact current tested `main`
+SHA, not uploaded scripts. Controller/policy files are installed by an authorized
+owner and never self-updated by a release.
+
+Server paths:
+
+- Root-owned controller/policy: `/opt/budgetguard-deploy`
+- Protected lock, current release, manifests and deployment dumps:
+  `/var/lib/budgetguard-deploy`
+- Retained web releases: `/var/www/budget-guard/releases/<full-sha>`
+- Retained function copies inside the existing Docker bind mount:
+  `volumes/functions/.budgetguard-releases/<full-sha>`
+- Private checksum ledger: `deployment_control.migrations` (not exposed via API)
+
+Owner-only initial setup, using a reviewed checkout and a dedicated Ed25519
+public key (never a private key file as the second argument):
+
+```sh
+sudo bash deploy/kaleva/install-controller.sh /absolute/audited/checkout /absolute/deploy-key.pub
+sudo /opt/budgetguard-deploy/bootstrap-ledger.py /absolute/audited/checkout
+```
+
+Bootstrap is one-time: it requires the five audited historical SQL files and
+baseline JSON, verifies existing schema evidence, makes and restore-tests a dump,
+then records checksums **without executing** those historical files. It refuses
+an existing ledger. Do not run this for future migrations.
+
+Before changing controllers, review the diff, run deployment tests, retain the
+current installed controller/policy for operator rollback and reinstall as the
+owner. CI cannot install these files. Daily backups retain their 14-day schedule;
+deployment recovery dumps have no automatic pruning yet. Monitor disk space and
+obtain approval before deleting recovery material. Neither dump family covers
+private Storage file bytes or off-host recovery.
