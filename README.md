@@ -2,6 +2,10 @@
 
 BudgetGuard turns transaction notifications into useful, near-real-time budget guardrails. Its primary experience is an offline-first Android dashboard with on-device SMS collection, paired with a React web companion and a Supabase data layer.
 
+For agent onboarding, start with [AGENTS.md](AGENTS.md) and
+[the current handoff](docs/handoff.md). The handoff distinguishes implemented
+features from verified production behaviour and records unfinished work.
+
 ## Product principles
 
 - **Present-tense budgeting:** show what is safe to spend now, not only what was planned at the start of the month.
