@@ -117,11 +117,11 @@ jobs:
           iface=$(ip -o route show to default | awk '{print $5}' | head -n 1)
           test -n "$iface"
           # Docker published ports bypass INPUT; protect forwarded traffic too.
-          sudo iptables -I DOCKER-USER -i "$iface" -j DROP
+          sudo iptables -I DOCKER-USER -i "$iface" -m conntrack --ctstate NEW -j DROP
           sudo iptables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
           sudo ip6tables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
           if sudo ip6tables -S DOCKER-USER >/dev/null 2>&1; then
-            sudo ip6tables -I DOCKER-USER -i "$iface" -j DROP
+            sudo ip6tables -I DOCKER-USER -i "$iface" -m conntrack --ctstate NEW -j DROP
           fi
       - name: Apply every migration to a fresh isolated database
         # Fresh hosted runner: start already applies the complete migration chain.
