@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Kit v0 brand tokens (docs/brand/tokens.css) -->
+    <color name="bg">#F7F4EF</color>               <!-- warm paper background -->
+    <color name="surface">#FFFFFF</color>          <!-- cards -->
+    <color name="ink">#1C1917</color>              <!-- primary text -->
+    <color name="ink_muted">#57534E</color>        <!-- secondary text -->
+    <color name="brand">#0F766E</color>            <!-- primary actions, teal -->
+    <color name="brand_pressed">#115E59</color>    <!-- pressed primary -->
+    <color name="accent">#C4A35A</color>           <!-- gold highlight, NOT for Safe to spend -->
+    <color name="danger">#B91C1C</color>           <!-- errors, negative STS -->
+    <color name="warning">#B45309</color>          <!-- caution -->
+    <color name="border">#E7E5E4</color>           <!-- dividers -->
+
+    <!-- Legacy launcher -->
     <color name="launcher_background">#191F1A</color>
 </resources>

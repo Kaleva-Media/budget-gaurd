@@ -2174,18 +2174,29 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private object Palette {
-        val paper = Color.rgb(244, 241, 232)
-        val canvas = Color.rgb(255, 253, 247)
-        val ink = Color.rgb(25, 31, 26)
+        // Kit v0 brand tokens (docs/brand/tokens.css)
+        val bg = Color.rgb(247, 244, 239)        // --bg #F7F4EF (warm paper)
+        val surface = Color.rgb(255, 255, 255)   // --surface #FFFFFF (cards)
+        val ink = Color.rgb(28, 25, 23)          // --ink #1C1917 (primary text)
+        val inkMuted = Color.rgb(87, 83, 78)     // --ink-muted #57534E (secondary text)
+        val brand = Color.rgb(15, 118, 110)      // --brand #0F766E (primary actions, teal)
+        val brandPressed = Color.rgb(17, 94, 89) // --brand-pressed #115E59
+        val accent = Color.rgb(196, 163, 90)     // --accent #C4A35A (gold highlight, NOT for STS)
+        val danger = Color.rgb(185, 28, 28)      // --danger #B91C1C (errors, negative STS)
+        val warning = Color.rgb(180, 83, 9)      // --warning #B45309 (caution)
+        val border = Color.rgb(231, 229, 228)    // --border #E7E5E4 (dividers)
+
+        // Legacy aliases for gradual migration
+        val paper = bg
+        val canvas = surface
         val inkSoft = Color.rgb(61, 70, 61)
         val inkRaised = Color.rgb(48, 59, 50)
-        val inkMuted = Color.rgb(184, 197, 185)
-        val muted = Color.rgb(103, 109, 101)
-        val moss = Color.rgb(52, 99, 71)
+        val muted = inkMuted
+        val moss = brand
         val mint = Color.rgb(173, 226, 188)
         val sage = Color.rgb(210, 230, 199)
         val peach = Color.rgb(246, 217, 196)
-        val coral = Color.rgb(168, 70, 51)
-        val line = Color.rgb(224, 223, 214)
+        val coral = danger
+        val line = border
     }
 }
