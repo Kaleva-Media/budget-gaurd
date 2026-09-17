@@ -206,10 +206,15 @@ export interface SafeToSpendInput {
 }
 
 export interface SafeToSpendSummary {
+  /** B — total SMS available balances for STS accounts */
   bCents: number;
+  /** R — remaining planned outflows (after subtracting matched posted + pending) */
   rCents: number;
+  /** P — all pending outflows on STS accounts (matched + unmatched; excludes transfer/reversal) */
   pCents: number;
+  /** C = R + P (total commitments) */
   cCents: number;
+  /** STS = B − C (may be negative, not clamped) */
   safeToSpendCents: number;
 }
 

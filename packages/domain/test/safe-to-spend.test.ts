@@ -108,7 +108,7 @@ describe("safe to spend (Home)", () => {
     expect(result.safeToSpendCents).toBe(350_000);
   });
 
-  test("P includes unmatched pending outflows on STS accounts", () => {
+  test("P includes all pending outflows on STS accounts", () => {
     const pendingTx: Transaction = {
       id: "pending1",
       accountId: "cheque",

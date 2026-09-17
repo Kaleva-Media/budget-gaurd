@@ -29,9 +29,9 @@ remaining = max(0, planned_cents − matched_cents)
 
 `matched_cents` includes **posted and pending** matches to that line.
 
-**P — Unmatched pending outflows on STS accounts**
+**P — All pending outflows on STS accounts**
 
-Sum of `abs(amount_cents)` for **all pending transactions** on STS-included accounts in the active entity where:
+Sum of `abs(amount_cents)` for **all pending transactions** (matched and unmatched) on STS-included accounts in the active entity where:
 
 - `status = pending`
 - `amount_cents < 0`
@@ -88,7 +88,7 @@ interface SafeToSpendInput {
 interface SafeToSpendSummary {
   bCents: number;              // B — total SMS available balances
   rCents: number;              // R — remaining planned outflows
-  pCents: number;              // P — unmatched pending outflows
+  pCents: number;              // P — all pending outflows (matched + unmatched)
   cCents: number;              // C = R + P (commitments)
   safeToSpendCents: number;    // STS = B − C (may be negative)
 }
