@@ -212,5 +212,6 @@ Check Wrangler's account/version output and secret bindings before publishing; d
 - Private APK distribution versus Google Play SMS-permission approval; release signing and distribution process.
 - Daily spending notifications only after reliable collection/sync is demonstrated.
 - CI for invoice ingress, Deno extraction/signatures, database RLS, and Android app tests.
+- Security and DR posture documented in `docs/risk-register.md`; R4 (DR gaps) remains Open pending off-host backup plan.
 
 Some production README/bootstrap notes predate multi-entity onboarding. Inspect the latest migrations and actual runtime data before relying on account seed counts or legacy mappings. Future agents should keep this document concise and replace historical blockers with verified outcomes as work completes.
