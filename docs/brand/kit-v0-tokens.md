@@ -6,16 +6,20 @@
 
 ---
 
-## Positioning (placeholder — Jules to confirm)
+## Positioning (Jules claims/voice fold — 2026-09-17)
 
-**Product name (locked):** BudgetGuard  
+**Working name:** BudgetGuard  
 
-**One-liner (Jules, Limited):** Android budgeting for South Africans who keep personal and business money in separate spaces — what your plan says you can still spend, not cash in the bank.
+**One-liner (in-app / brand purpose):** Know what you can **Safe to spend** across personal and business workspaces — not cash in the bank, and not the same as plan leftover.
+
+**One-liner (social / Limited):** Android budgeting for SA — personal and business money kept apart. Safe to spend ≠ cash in the bank.
 
 **Trust pillars (product law):**
-1. **Safe to spend** is the number to use before you buy — not the same as bank cash alone, and not plan surplus.
-2. SMS balances are **bank-alert signals**, not a full statement reconcile.
-3. Invoices never change the plan until you approve; no payment promises.
+1. **Safe to spend** is the number to use before you buy — not the same as bank cash alone, and not plan leftover / plan surplus.
+2. SMS balances are **bank-alert signals** (supported Absa and FNB bank-alert formats), not a full statement reconcile.
+3. Invoices never change the plan until you approve; no payment promises. (In-app honesty only — keep invoices off marketing lead until Vera Verifies.)
+
+**Claims review:** `growth/BRAND_KIT_v0_CLAIMS_REVIEW.md`
 
 ---
 
@@ -123,9 +127,8 @@
 
 ---
 
-## Decisions (Gugu 2026-09-17)
+## Open for Gugu / Jules
 
-- Name: **BudgetGuard** locked  
-- Dark mode: **Phase B** (light-only in v0)  
-- No founder mark/colour to honour  
-- Jules claims sync: see `01-purpose-positioning.md` + `02-voice-and-tone.md`  
+- Confirm name **BudgetGuard**  
+- [x] Jules: positioning one-liner + forbidden claims fold (2026-09-17)  
+- Dark mode in v0? (default no)  
