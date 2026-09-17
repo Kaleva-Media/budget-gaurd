@@ -242,21 +242,13 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
     accounts.filter((acc) => acc.includeInSafeToSpend).map((acc) => acc.id),
   );
 
-  const matchedPendingIds = new Set<string>();
-  for (const tx of transactions) {
-    if (tx.status === "pending" && tx.plannedItemIds.length > 0) {
-      matchedPendingIds.add(tx.id);
-    }
-  }
-
   const pCents = transactions
     .filter(
       (tx) =>
         tx.status === "pending" &&
         tx.amountCents < 0 &&
         !["transfer", "reversal"].includes(tx.kind) &&
-        stsAccountIds.has(tx.accountId) &&
-        !matchedPendingIds.has(tx.id),
+        stsAccountIds.has(tx.accountId),
     )
     .reduce((sum, tx) => sum + Math.abs(tx.amountCents), 0);
 

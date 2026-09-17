@@ -31,15 +31,36 @@ remaining = max(0, planned_cents − matched_cents)
 
 **P — Unmatched pending outflows on STS accounts**
 
-Sum of `abs(amount_cents)` for transactions on STS-included accounts in the active entity where:
+Sum of `abs(amount_cents)` for **all pending transactions** on STS-included accounts in the active entity where:
 
 - `status = pending`
 - `amount_cents < 0`
 - kind is not `transfer` or `reversal`
 
+P includes both matched and unmatched pending. Unmatched pending is counted only in P. Matched pending is counted in P and also subtracted from R (via the matched amount), ensuring single-counting in C.
+
 ### Deduplication rule (locked with Neo)
 
-A pending that is **matched** to a plan line moves rands from **R into P**, but **C stays the same** (counted once). Unmatched pending appears only in **P**.
+When a pending transaction is matched to a plan line, it reduces R and is counted in P, keeping C unchanged (single-counted).
+
+**Numeric example:**
+
+State 1: Plan with no pending
+- Planned rent: R150 000
+- R = R150 000 (planned amount)
+- P = R0 (no pending)
+- **C = R150 000**
+- STS = B − R150 000
+
+State 2: Matched pending arrives
+- Planned rent: R150 000
+- Matched pending: −R150 000
+- R = R0 (planned R150k − matched R150k)
+- P = R150 000 (matched pending in P)
+- **C = R150 000** (unchanged!)
+- STS = B − R150 000 (unchanged!)
+
+The matched pending is counted once in P and subtracted from R, preventing double-counting. Unmatched pending is counted only in P (not also in R).
 
 ### Fixture anti double-count (S5 / AC-S5)
 

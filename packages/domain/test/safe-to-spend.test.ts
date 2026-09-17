@@ -231,7 +231,17 @@ describe("safe to spend (Home)", () => {
   });
 
   test("pending matched to plan moves R→P, C unchanged (Neo dedup)", () => {
-    const pendingMatchedTx: Transaction = {
+    const beforeWithoutPending = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [plannedExpense],
+      transactions: [],
+    });
+
+    expect(beforeWithoutPending.rCents).toBe(150_000);
+    expect(beforeWithoutPending.pCents).toBe(0);
+    expect(beforeWithoutPending.cCents).toBe(150_000);
+
+    const matchedPending: Transaction = {
       id: "pending1",
       accountId: "cheque",
       categoryId: "housing",
@@ -246,16 +256,19 @@ describe("safe to spend (Home)", () => {
       plannedItemIds: ["rent"],
     };
 
-    const result = summariseSafeToSpend({
+    const afterMatchedPending = summariseSafeToSpend({
       accounts: [stsAccount],
       plannedItems: [plannedExpense],
-      transactions: [pendingMatchedTx],
+      transactions: [matchedPending],
     });
 
-    expect(result.rCents).toBe(0);
-    expect(result.pCents).toBe(0);
-    expect(result.cCents).toBe(0);
-    expect(result.safeToSpendCents).toBe(500_000);
+    expect(afterMatchedPending.rCents).toBe(0);
+    expect(afterMatchedPending.pCents).toBe(150_000);
+    expect(afterMatchedPending.cCents).toBe(150_000);
+    expect(afterMatchedPending.safeToSpendCents).toBe(350_000);
+
+    expect(afterMatchedPending.cCents).toBe(beforeWithoutPending.cCents);
+    expect(afterMatchedPending.safeToSpendCents).toBe(beforeWithoutPending.safeToSpendCents);
   });
 
   test("partial match reduces R proportionally", () => {
@@ -444,9 +457,9 @@ describe("safe to spend (Home)", () => {
     });
 
     expect(result.rCents).toBe(100_000);
-    expect(result.pCents).toBe(25_000);
-    expect(result.cCents).toBe(125_000);
-    expect(result.safeToSpendCents).toBe(375_000);
+    expect(result.pCents).toBe(105_000);
+    expect(result.cCents).toBe(205_000);
+    expect(result.safeToSpendCents).toBe(295_000);
   });
 
   test("savings and debt payment kinds count as planned outflows", () => {
