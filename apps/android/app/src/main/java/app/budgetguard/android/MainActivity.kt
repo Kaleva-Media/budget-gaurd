@@ -52,6 +52,7 @@ import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
+import app.budgetguard.android.dashboard.summariseSafeToSpend
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
