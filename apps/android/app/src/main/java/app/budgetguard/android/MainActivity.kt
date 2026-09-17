@@ -412,11 +412,8 @@ class MainActivity : ComponentActivity() {
         val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
         hero.addView(label(formatZar(sts.safeToSpendCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
-        hero.addView(label(
-            "Use Safe to spend before you buy something. This shows your available bank balance minus remaining commitments (not reconciled). Plan leftover (not cash).",
-            14f,
-            Palette.inkMuted,
-        ).withTopMargin(7))
+        hero.addView(label("Plan leftover (not cash)", 14f, Palette.inkMuted).withTopMargin(7))
+        hero.addView(label("Use Safe to spend before you buy something.", 14f, Palette.inkMuted).withTopMargin(7))
         val budget = data.budgetSummary()
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
