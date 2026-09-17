@@ -5,7 +5,68 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
-- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) opened against `dev` for review; not merged. Commit `9278240` on `cursor/sha-pin-github-actions-d413`.
+- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
+
+## Deployment governance — 2026-09-17
+
+Read `docs/deployment-policy.md` before production work. Guardrails are being
+delivered through `chore/deployment-guardrails`, not a direct push to `main`.
+
+Live GitHub controls: protected main requires strict/up-to-date `all-tests`
+bound to GitHub Actions, one independent approving review, stale-review
+dismissal, last-push approval, code-owner review and resolved conversations.
+Administrators are included; force pushes/deletions are prohibited; squash only.
+Production and rollback environments permit only main; rollback requires owner
+approval. CI credentials are environment-scoped and host keys pinned.
+
+The root-owned forced-command controller is installed and its private-port/RLS/
+invoker-view/private-bucket verification passes. The dedicated deployment key
+successfully verified and was refused arbitrary shell execution. BudgetGuard's
+database and Studio have no published ports; pooler and Envoy are loopback-only.
+The shared host has unrelated public services; no changes were made to those.
+
+A full database dump was successfully restored into a temporary private test
+database **before** adopting the five already-applied historical migration
+checksums. The first restore attempt correctly blocked adoption because Supabase
+postgres cannot set extension restore parameters; the internal admin was then
+used for the temporary restore only. Historical application SQL was not replayed.
+The baseline evidence and dump checksum are protected in
+`/var/lib/budgetguard-deploy/baseline.json`; the private ledger is
+`deployment_control.migrations`.
+
+New workflows expand CI to web/domain, built-browser demo/auth checks, Android
+parser/app tests, email tests/checks/Worker dry run, Deno tests/checks, isolated
+database migration/pgTAP tests, and controller/migration-policy tests. Automated
+web/invoice-function deployment and approved code rollback are committed in the
+guardrails branch but are **not activated or end-to-end verified until its PR
+is independently reviewed and merged**. Retained schema is additive; database
+restore is separate owner-authorized recovery. Same-host dumps do not protect
+Storage file bytes or provide off-host disaster recovery.
+
+Remaining governance setup: both desktop GitHub connections authenticate as
+the owner and cannot independently approve an owner-authored PR. Provision a
+non-admin agent author or another independent collaborator; do not bypass review.
+Sole-owner CODEOWNERS can also block owner-authored future PRs. Removing mandatory
+owner-only approval was rejected by the safety review as an unauthorized control
+weakening; it remains enabled. Owner authorization is required to change it.
+Cloudflare email-Worker automated publishing still needs a scoped credential;
+its CI dry run is not a live deployment or proof of invoice delivery.
+
+Local controller tests (13), domain tests (5), email tests (5), Deno tests (4),
+type checks, configured web build, both headless browser modes and Android
+parser/app unit tests passed. The Worker dry-run bundle passed without publishing.
+Local Supabase tests were initially unavailable because Docker's API returned
+500. GitHub CI exposed a retired Android action default (`tools` package), now
+corrected to platform-tools. A redundant local reset hit a 502 during restart;
+CI now checks a fresh inbound-firewalled stack directly instead. Every suite and
+the aggregate `all-tests` passed on application/controller commit `d4c9508`,
+including migration-chain and cross-user/cross-entity/private-PDF denial tests.
+Evidence: [push CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160606331)
+and [PR CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160609889).
+Any subsequent documentation-only commit must also pass the full latest-commit
+gate; see [PR #1](https://github.com/edward-kalevamedia/budget-gaurd/pull/1) for that
+current status. No merge/deployment bypass was used. Production public auth
+health passed and anonymous bank-account API access was denied.
 
 ## What the user wants
 
@@ -26,7 +87,7 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 
 Android source build version: `0.5.1`, version code `12`. This does not prove which APK a user currently has installed.
 
-Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. CI currently checks domain/web tests, web type checks/build, and Android parser tests; it does **not** cover email ingress, Deno functions, database RLS, or installed Android UI.
+Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 
 ## Highest priority: finish live invoice delivery
 
@@ -89,7 +150,11 @@ Git access note: the machine's SSH identity authenticated as `edward-digify` and
 
 ## Operational checklist
 
-This is a safety/checklist runbook, not a claim that production deployment is automated. Exact release naming, function mount paths, migration tracking, and full rollback version IDs must be established from the live system.
+The guardrails workflows replace manual web/function/migration deployment after
+reviewed activation. The checklist below is historical operator guidance; use
+`docs/deployment-policy.md` and the deployment README for the current guarded
+workflow. Worker publishing and destructive recovery still require scoped
+operator authorization.
 
 ### Preflight and read-only diagnostics
 

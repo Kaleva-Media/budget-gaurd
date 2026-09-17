@@ -1,0 +1,46 @@
+name: Roll back web platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: 'previous or full SHA of an already-healthy release (schema/data retained)'
+        required: true
+        default: previous
+
+permissions:
+  contents: read
+
+concurrency:
+  group: budgetguard-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    if: github.repository == 'edward-kalevamedia/budget-gaurd' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-rollback
+    timeout-minutes: 10
+    steps:
+      - name: Validate rollback target
+        env:
+          TARGET: ${{ inputs.revision }}
+        run: '[[ "$TARGET" == previous || "$TARGET" =~ ^[0-9a-f]{40}$ ]]'
+      - name: Configure restricted identity
+        env:
+          DEPLOY_KEY: ${{ secrets.BUDGETGUARD_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.BUDGETGUARD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/budgetguard
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/budgetguard ~/.ssh/known_hosts
+      - name: Restore retained web/function release and verify
+        env:
+          TARGET: ${{ inputs.revision }}
+          DEPLOY_HOST: ${{ vars.BUDGETGUARD_DEPLOY_HOST }}
+        run: ssh -i ~/.ssh/budgetguard -o BatchMode=yes -o StrictHostKeyChecking=yes "budgetguard-deploy@$DEPLOY_HOST" "rollback $TARGET"
+      - if: always()
+        run: rm -f ~/.ssh/budgetguard
