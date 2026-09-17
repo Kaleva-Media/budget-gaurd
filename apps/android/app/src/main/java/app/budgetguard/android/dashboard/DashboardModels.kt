@@ -136,6 +136,7 @@ data class Transaction(
     val merchant: String,
     val description: String,
     val needsReview: Boolean,
+    val plannedItemIds: List<String> = emptyList(),
 )
 
 data class CashflowSummary(
@@ -152,6 +153,14 @@ data class BudgetSummary(
     val remainingCents: Long,
     val safeToSpendTodayCents: Long,
     val daysRemaining: Int,
+)
+
+data class SafeToSpendSummary(
+    val bCents: Long,
+    val rCents: Long,
+    val pCents: Long,
+    val cCents: Long,
+    val safeToSpendCents: Long,
 )
 
 fun MobileDashboard.cashflowSummary(): CashflowSummary {
@@ -210,3 +219,52 @@ fun formatPeriodRange(startsOn: String): String = runCatching {
     val endName = end.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH))
     "$startName – $endName"
 }.getOrDefault(startsOn)
+
+fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
+    val bCents = accounts
+        .filter { it.includeInSafeToSpend }
+        .sumOf { it.currentBalanceCents }
+
+    val matchedCentsByItem = mutableMapOf<String, Long>()
+    for (tx in transactions) {
+        if (tx.status == "posted" || tx.status == "pending") {
+            for (plannedId in tx.plannedItemIds) {
+                val current = matchedCentsByItem.getOrDefault(plannedId, 0L)
+                matchedCentsByItem[plannedId] = current + kotlin.math.abs(tx.amountCents)
+            }
+        }
+    }
+
+    val rCents = plannedItems
+        .filter { it.direction == "expense" }
+        .sumOf { item ->
+            val matched = matchedCentsByItem.getOrDefault(item.id, 0L)
+            val remaining = maxOf(0L, item.plannedCents - matched)
+            remaining
+        }
+
+    val stsAccountIds = accounts
+        .filter { it.includeInSafeToSpend }
+        .map { it.id }
+        .toSet()
+
+    val pCents = transactions
+        .filter { tx ->
+            tx.status == "pending" &&
+            tx.amountCents < 0 &&
+            tx.kind != "transfer" && tx.kind != "reversal" &&
+            stsAccountIds.contains(tx.accountId)
+        }
+        .sumOf { kotlin.math.abs(it.amountCents) }
+
+    val cCents = rCents + pCents
+    val safeToSpendCents = bCents - cCents
+
+    return SafeToSpendSummary(
+        bCents = bCents,
+        rCents = rCents,
+        pCents = pCents,
+        cCents = cCents,
+        safeToSpendCents = safeToSpendCents,
+    )
+}
