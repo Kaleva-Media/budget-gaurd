@@ -3,12 +3,22 @@
   color: #20231f;
   background: #f2f0e9;
   font-synthesis: none;
-  --ink: #151814;
-  --paper: #f8f7f1;
-  --line: #dcdad1;
-  --muted: #75786f;
+  /* Kit v0 brand tokens (docs/brand/tokens.css) */
+  --bg: #F7F4EF;
+  --surface: #FFFFFF;
+  --ink: #1C1917;
+  --ink-muted: #57534E;
+  --brand: #0F766E;
+  --brand-pressed: #115E59;
+  --accent: #C4A35A;
+  --danger: #B91C1C;
+  --warning: #B45309;
+  --border: #E7E5E4;
+  /* Legacy aliases */
+  --paper: var(--bg);
+  --line: var(--border);
+  --muted: var(--ink-muted);
   --signal: #d9ff57;
-  --danger: #e86a47;
 }
 
 * { box-sizing: border-box; }
