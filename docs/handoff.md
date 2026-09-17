@@ -3,6 +3,10 @@
 Updated: 2026-09-17. Source baseline: `436ae6f` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
 This document records repository state and historical observations, not a fresh production audit.
 
+## Recent changes
+
+- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) opened against `dev` for review; not merged. Commit `9278240` on `cursor/sha-pin-github-actions-d413`.
+
 ## What the user wants
 
 BudgetGuard replaces spreadsheet-style personal and business budgeting with a mobile-first dashboard. Users can manage Personal, Kaleva Media, MTG, or other entities; assign bank accounts; describe what each account is normally used for; enter income and expenses; and plan upcoming monthly periods. SMS-derived available balances are account-specific. Surplus carries into the next period, currently using projected plan surplus rather than reconciled actual month-end cash.
