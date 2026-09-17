@@ -401,23 +401,20 @@ class MainActivity : ComponentActivity() {
         val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
         content.addView(buildHeader("Home"))
 
-        val budget = data.budgetSummary()
+        val sts = data.summariseSafeToSpend()
         val cashflow = data.cashflowSummary()
         val selectedMonth = YearMonth.from(LocalDate.parse(data.period.startsOn))
         val heroLabel = when {
             selectedMonth.isAfter(YearMonth.now()) -> "PLANNED DAILY ALLOWANCE"
             selectedMonth.isBefore(YearMonth.now()) -> "PERIOD BUDGET POSITION"
-            else -> "SAFE TO SPEND TODAY"
+            else -> "SAFE TO SPEND"
         }
         val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
-        hero.addView(label(formatZar(budget.safeToSpendTodayCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
-        hero.addView(label(
-            if (data.budgets.isEmpty()) "Add flexible budgets to activate your daily guardrail."
-            else "${formatZar(budget.remainingCents)} left across flexible budgets · ${budget.daysRemaining} days",
-            14f,
-            Palette.inkMuted,
-        ).withTopMargin(7))
+        hero.addView(label(formatZar(sts.safeToSpendCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
+        hero.addView(label("Plan leftover (not cash)", 14f, Palette.inkMuted).withTopMargin(7))
+        hero.addView(label("Use Safe to spend before you buy something.", 14f, Palette.inkMuted).withTopMargin(7))
+        val budget = data.budgetSummary()
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = if (budget.limitCents == 0L) 0 else (((budget.spentCents + budget.committedCents) * 100) / budget.limitCents).coerceIn(0, 100).toInt()

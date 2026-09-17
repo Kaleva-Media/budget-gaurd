@@ -166,6 +166,14 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
+        val matchRows = client.from("planned_item_matches")
+            .select {
+                filter {
+                    eq("user_id", userId)
+                }
+            }
+            .decodeList<MatchRow>()
+        val matchesByTransaction = matchRows.groupBy({ it.transactionId }, { it.plannedItemId })
         val invoiceInbox = client.from("invoice_inboxes")
             .select {
                 filter { eq("is_active", true) }
@@ -241,6 +249,7 @@ class SupabaseCollectorClient private constructor(
                     merchant = row.merchant ?: "Unknown transaction",
                     description = row.description.orEmpty(),
                     needsReview = row.needsReview,
+                    plannedItemIds = matchesByTransaction[row.id].orEmpty(),
                 )
             },
             invoiceInbox = invoiceInbox?.let { InvoiceInbox(it.address) },
@@ -972,6 +981,12 @@ private data class TransactionRow(
     val merchant: String?,
     val description: String?,
     @SerialName("needs_review") val needsReview: Boolean,
+)
+
+@Serializable
+private data class MatchRow(
+    @SerialName("transaction_id") val transactionId: String,
+    @SerialName("planned_item_id") val plannedItemId: String,
 )
 
 @Serializable
