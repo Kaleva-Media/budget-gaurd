@@ -4,9 +4,10 @@
 
 1. Read `docs/handoff.md` for current status, known blockers, and the next task.
 2. Read `README.md` for setup and `docs/architecture.md` for domain semantics and trust boundaries.
-3. Before production work, read `deploy/kaleva/README.md` and the operational checklist in the handoff.
+3. Read `docs/prd-first-trustworthy-week.md` for the charter-approved product requirements and locked Safe to spend semantics.
+4. Before production work, read `deploy/kaleva/README.md` and the operational checklist in the handoff.
    Also read `docs/deployment-policy.md`; its merge, backup, migration and recovery rules are mandatory.
-4. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
+5. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
 Repository: `https://github.com/edward-kalevamedia/budget-gaurd` (spelling is intentional).
 Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit and one independent approving reviewer; a new push requires a fresh approval.
