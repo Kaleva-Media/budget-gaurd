@@ -1,6 +1,6 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-17. Source baseline: `9a19439` (initial application commit on `main`).
+Updated: 2026-09-17. Source baseline: `436ae6f` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
@@ -131,6 +131,10 @@ Check Wrangler's account/version output and secret bindings before publishing; d
 - Roll back web via the previous release symlink, Worker via its recorded deployment/version, and functions via the preserved copy using the inspected live service procedure. Re-test the affected workflow afterward.
 - Database rollback is not “delete a migration”: prefer a forward corrective migration. Restoring a backup can lose newer writes and requires explicit recovery authorization and a coordinated plan.
 - Backups currently are same-host database dumps with 14-day retention; off-host recovery and private PDF Storage backup coverage are not established. Do not claim full disaster recovery from a database dump alone.
+
+## Recent completions
+
+- **M2 safe-to-spend** (PR #4, commit `436ae6f`): Canonical `docs/safe-to-spend.md` definition, `summariseSafeToSpend` domain export with UK spelling, 15 golden tests. STS = B − C formula locked; Neo dedup rule implemented (P includes all pending, matched + unmatched); planned income excluded; negative STS allowed. Android must mirror the return fields `{ bCents, rCents, pCents, cCents, safeToSpendCents }`.
 
 ## Other unfinished work and decisions
 

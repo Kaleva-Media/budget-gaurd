@@ -199,4 +199,74 @@ export function formatZar(cents: number, options?: { sign?: boolean }): string {
   }).format(cents / 100);
 }
 
+export interface SafeToSpendInput {
+  accounts: Account[];
+  plannedItems: PlannedItem[];
+  transactions: Transaction[];
+}
+
+export interface SafeToSpendSummary {
+  /** B — total SMS available balances for STS accounts */
+  bCents: number;
+  /** R — remaining planned outflows (after subtracting matched posted + pending) */
+  rCents: number;
+  /** P — all pending outflows on STS accounts (matched + unmatched; excludes transfer/reversal) */
+  pCents: number;
+  /** C = R + P (total commitments) */
+  cCents: number;
+  /** STS = B − C (may be negative, not clamped) */
+  safeToSpendCents: number;
+}
+
+export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummary {
+  const { accounts, plannedItems, transactions } = input;
+
+  const bCents = accounts
+    .filter((acc) => acc.includeInSafeToSpend)
+    .reduce((sum, acc) => sum + acc.currentBalanceCents, 0);
+
+  const matchedCentsByItem = new Map<string, number>();
+  for (const tx of transactions) {
+    if (tx.status === "posted" || tx.status === "pending") {
+      for (const plannedId of tx.plannedItemIds) {
+        const current = matchedCentsByItem.get(plannedId) ?? 0;
+        matchedCentsByItem.set(plannedId, current + Math.abs(tx.amountCents));
+      }
+    }
+  }
+
+  const rCents = plannedItems
+    .filter((item) => item.direction === "expense")
+    .reduce((sum, item) => {
+      const matched = matchedCentsByItem.get(item.id) ?? 0;
+      const remaining = Math.max(0, item.plannedCents - matched);
+      return sum + remaining;
+    }, 0);
+
+  const stsAccountIds = new Set(
+    accounts.filter((acc) => acc.includeInSafeToSpend).map((acc) => acc.id),
+  );
+
+  const pCents = transactions
+    .filter(
+      (tx) =>
+        tx.status === "pending" &&
+        tx.amountCents < 0 &&
+        !["transfer", "reversal"].includes(tx.kind) &&
+        stsAccountIds.has(tx.accountId),
+    )
+    .reduce((sum, tx) => sum + Math.abs(tx.amountCents), 0);
+
+  const cCents = rCents + pCents;
+  const safeToSpendCents = bCents - cCents;
+
+  return {
+    bCents,
+    rCents,
+    pCents,
+    cCents,
+    safeToSpendCents,
+  };
+}
+
 export { demoDashboard } from "./demo-data";
