@@ -1,6 +1,6 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-17. Source baseline: `2fa935c` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
+Updated: 2026-09-17. Source baseline: `436ae6f` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## What the user wants
@@ -130,7 +130,7 @@ Check Wrangler's account/version output and secret bindings before publishing; d
 
 ## Recent completions
 
-- **M2 safe-to-spend** (PR #4, commit `2fa935c`): Canonical `docs/safe-to-spend.md` definition, `summariseSafeToSpend` domain export with UK spelling, 15 golden tests. STS = B − C formula locked; Neo dedup rule implemented; planned income excluded; negative STS allowed. Android must mirror the return fields `{ bCents, rCents, pCents, cCents, safeToSpendCents }`.
+- **M2 safe-to-spend** (PR #4, commit `436ae6f`): Canonical `docs/safe-to-spend.md` definition, `summariseSafeToSpend` domain export with UK spelling, 15 golden tests. STS = B − C formula locked; Neo dedup rule implemented (P includes all pending, matched + unmatched); planned income excluded; negative STS allowed. Android must mirror the return fields `{ bCents, rCents, pCents, cCents, safeToSpendCents }`.
 
 ## Other unfinished work and decisions
 
