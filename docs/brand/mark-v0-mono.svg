@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="BudgetGuard mark mono v0">
+  <rect width="512" height="512" rx="96" fill="#FFFFFF"/>
+  <path fill="#1C1917" d="M256 72c-8 0-16 2-24 6L128 128v120c0 88 56 152 128 192 72-40 128-104 128-192V128L280 78c-8-4-16-6-24-6z"/>
+  <path fill="#FFFFFF" d="M232 292l-44-44 28-28 16 16 68-68 28 28-96 96z"/>
+</svg>
