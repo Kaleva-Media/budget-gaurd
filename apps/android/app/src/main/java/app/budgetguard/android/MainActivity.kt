@@ -406,7 +406,7 @@ class MainActivity : ComponentActivity() {
         val cashflow = data.cashflowSummary()
         val selectedMonth = YearMonth.from(LocalDate.parse(data.period.startsOn))
         val heroLabel = when {
-            selectedMonth.isAfter(YearMonth.now()) -> "PLANNED DAILY ALLOWANCE"
+            selectedMonth.isAfter(YearMonth.now()) -> "PLANNED PERIOD BUDGET"
             selectedMonth.isBefore(YearMonth.now()) -> "PERIOD BUDGET POSITION"
             else -> "SAFE TO SPEND"
         }
