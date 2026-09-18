@@ -220,6 +220,17 @@ fun formatPeriodRange(startsOn: String): String = runCatching {
     "$startName – $endName"
 }.getOrDefault(startsOn)
 
+/**
+ * Calculate Safe-to-Spend for the current period.
+ *
+ * IMPORTANT: For accurate STS, transactions must include ALL open pending outflows,
+ * not just a page. A ~100-transaction page will silently drop older pendings
+ * and overstate STS.
+ *
+ * Split payments: When a transaction is matched to multiple planned items, the
+ * transaction amount is divided equally across all linked items. This prevents
+ * inflating commitments (C) by counting the same transaction multiple times.
+ */
 fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
     val bCents = accounts
         .filter { it.includeInSafeToSpend }
@@ -228,9 +239,13 @@ fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
     val matchedCentsByItem = mutableMapOf<String, Long>()
     for (tx in transactions) {
         if (tx.status == "posted" || tx.status == "pending") {
-            for (plannedId in tx.plannedItemIds) {
-                val current = matchedCentsByItem.getOrDefault(plannedId, 0L)
-                matchedCentsByItem[plannedId] = current + kotlin.math.abs(tx.amountCents)
+            val splitCount = tx.plannedItemIds.size
+            if (splitCount > 0) {
+                val amountPerItem = kotlin.math.abs(tx.amountCents) / splitCount
+                for (plannedId in tx.plannedItemIds) {
+                    val current = matchedCentsByItem.getOrDefault(plannedId, 0L)
+                    matchedCentsByItem[plannedId] = current + amountPerItem
+                }
             }
         }
     }

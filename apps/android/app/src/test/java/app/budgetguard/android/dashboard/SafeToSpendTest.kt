@@ -583,6 +583,186 @@ class SafeToSpendTest {
         assertEquals(500_000L, result.safeToSpendCents)
     }
 
+    @Test
+    fun `D-028 regression - older pending outflows must be included in STS calculation`() {
+        val oldPending1 = Transaction(
+            id = "old_pending_1",
+            accountId = "cheque",
+            categoryId = null,
+            occurredOn = "2026-07-15",
+            occurredAt = "2026-07-15T10:00:00+02:00",
+            amountCents = -30_000,
+            status = "pending",
+            kind = "card_purchase",
+            merchant = "Old Merchant 1",
+            description = "Old pending 1",
+            needsReview = false,
+            plannedItemIds = emptyList(),
+        )
+
+        val oldPending2 = Transaction(
+            id = "old_pending_2",
+            accountId = "cheque",
+            categoryId = null,
+            occurredOn = "2026-08-20",
+            occurredAt = "2026-08-20T14:30:00+02:00",
+            amountCents = -25_000,
+            status = "pending",
+            kind = "card_purchase",
+            merchant = "Old Merchant 2",
+            description = "Old pending 2",
+            needsReview = false,
+            plannedItemIds = emptyList(),
+        )
+
+        val recentPending = Transaction(
+            id = "recent_pending",
+            accountId = "cheque",
+            categoryId = null,
+            occurredOn = "2026-09-17",
+            occurredAt = "2026-09-17T10:00:00+02:00",
+            amountCents = -20_000,
+            status = "pending",
+            kind = "card_purchase",
+            merchant = "Recent Merchant",
+            description = "Recent pending",
+            needsReview = false,
+            plannedItemIds = emptyList(),
+        )
+
+        val result = dashboard(
+            accounts = listOf(stsAccount),
+            plannedItems = emptyList(),
+            transactions = listOf(oldPending1, oldPending2, recentPending),
+        ).summariseSafeToSpend()
+
+        assertEquals(75_000L, result.pCents)
+        assertEquals(75_000L, result.cCents)
+        assertEquals(425_000L, result.safeToSpendCents)
+    }
+
+    @Test
+    fun `D-027 regression - split payment equal-allocates once (not full×N)`() {
+        val groceries = PlannedItem(
+            id = "groceries",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Groceries",
+            plannedCents = 300_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "food",
+            dueDay = null,
+            sortOrder = 1,
+        )
+
+        val fuel = PlannedItem(
+            id = "fuel",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Fuel",
+            plannedCents = 200_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "transport",
+            dueDay = null,
+            sortOrder = 2,
+        )
+
+        val beforeMatch = dashboard(
+            accounts = listOf(stsAccount),
+            plannedItems = listOf(groceries, fuel),
+            transactions = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(500_000L, beforeMatch.rCents)
+        assertEquals(0L, beforeMatch.pCents)
+        assertEquals(500_000L, beforeMatch.cCents)
+
+        val splitTransaction = Transaction(
+            id = "split_tx",
+            accountId = "cheque",
+            categoryId = "food",
+            occurredOn = "2026-09-10",
+            occurredAt = "2026-09-10T14:00:00+02:00",
+            amountCents = -50_000,
+            status = "posted",
+            kind = "card_purchase",
+            merchant = "Pick n Pay",
+            description = "Split R250 each",
+            needsReview = false,
+            plannedItemIds = listOf("groceries", "fuel"),
+        )
+
+        val afterMatch = dashboard(
+            accounts = listOf(stsAccount),
+            plannedItems = listOf(groceries, fuel),
+            transactions = listOf(splitTransaction),
+        ).summariseSafeToSpend()
+
+        assertEquals(450_000L, afterMatch.rCents)
+        assertEquals(0L, afterMatch.pCents)
+        assertEquals(450_000L, afterMatch.cCents)
+        assertEquals(50_000L, afterMatch.safeToSpendCents)
+    }
+
+    @Test
+    fun `Edward golden - R500 split on two lines produces STS 3500 not 4000`() {
+        val stsAccountWith4000 = stsAccount.copy(currentBalanceCents = 400_000)
+
+        val expense1 = PlannedItem(
+            id = "exp1",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Expense 1",
+            plannedCents = 50_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "general",
+            dueDay = null,
+            sortOrder = 1,
+        )
+
+        val expense2 = PlannedItem(
+            id = "exp2",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Expense 2",
+            plannedCents = 50_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "general",
+            dueDay = null,
+            sortOrder = 2,
+        )
+
+        val splitTx = Transaction(
+            id = "split",
+            accountId = "cheque",
+            categoryId = "general",
+            occurredOn = "2026-09-10",
+            occurredAt = "2026-09-10T10:00:00+02:00",
+            amountCents = -50_000,
+            status = "posted",
+            kind = "card_purchase",
+            merchant = "Merchant",
+            description = "Split R500",
+            needsReview = false,
+            plannedItemIds = listOf("exp1", "exp2"),
+        )
+
+        val result = dashboard(
+            accounts = listOf(stsAccountWith4000),
+            plannedItems = listOf(expense1, expense2),
+            transactions = listOf(splitTx),
+        ).summariseSafeToSpend()
+
+        assertEquals(400_000L, result.bCents)
+        assertEquals(50_000L, result.rCents)
+        assertEquals(50_000L, result.cCents)
+        assertEquals(350_000L, result.safeToSpendCents)
+    }
+
     private fun dashboard(
         accounts: List<Account> = emptyList(),
         plannedItems: List<PlannedItem> = emptyList(),
