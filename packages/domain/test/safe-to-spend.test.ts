@@ -525,4 +525,327 @@ describe("safe to spend (Home)", () => {
     expect(result.rCents).toBe(0);
     expect(result.safeToSpendCents).toBe(500_000);
   });
+
+  test("split payment: posted transaction across 2 plan items does not inflate C", () => {
+    const utilities: PlannedItem = {
+      id: "electricity",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Electricity",
+      plannedCents: 80_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "utilities",
+      dueDay: 5,
+      sortOrder: 2,
+    };
+
+    const water: PlannedItem = {
+      id: "water",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Water",
+      plannedCents: 40_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "utilities",
+      dueDay: 5,
+      sortOrder: 3,
+    };
+
+    const beforeMatch = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [utilities, water],
+      transactions: [],
+    });
+
+    expect(beforeMatch.rCents).toBe(120_000);
+    expect(beforeMatch.pCents).toBe(0);
+    expect(beforeMatch.cCents).toBe(120_000);
+
+    const splitTx: Transaction = {
+      id: "split1",
+      accountId: "cheque",
+      categoryId: "utilities",
+      occurredAt: "2026-09-05T10:00:00+02:00",
+      amountCents: -120_000,
+      status: "posted",
+      kind: "scheduled_payment",
+      source: "sms",
+      merchant: "City Services",
+      description: "Combined utilities",
+      needsReview: false,
+      plannedItemIds: ["electricity", "water"],
+    };
+
+    const afterMatch = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [utilities, water],
+      transactions: [splitTx],
+    });
+
+    expect(afterMatch.rCents).toBe(20_000);
+    expect(afterMatch.pCents).toBe(0);
+    expect(afterMatch.cCents).toBe(20_000);
+    expect(afterMatch.safeToSpendCents).toBe(480_000);
+  });
+
+  test("split payment: pending split across 3 plan items moves R→P without inflating C", () => {
+    const item1: PlannedItem = {
+      id: "item1",
+      direction: "expense",
+      kind: "variable_expense",
+      name: "Item 1",
+      plannedCents: 30_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "shopping",
+      dueDay: null,
+      sortOrder: 1,
+    };
+
+    const item2: PlannedItem = {
+      id: "item2",
+      direction: "expense",
+      kind: "variable_expense",
+      name: "Item 2",
+      plannedCents: 30_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "shopping",
+      dueDay: null,
+      sortOrder: 2,
+    };
+
+    const item3: PlannedItem = {
+      id: "item3",
+      direction: "expense",
+      kind: "variable_expense",
+      name: "Item 3",
+      plannedCents: 30_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "shopping",
+      dueDay: null,
+      sortOrder: 3,
+    };
+
+    const beforePending = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [item1, item2, item3],
+      transactions: [],
+    });
+
+    expect(beforePending.rCents).toBe(90_000);
+    expect(beforePending.pCents).toBe(0);
+    expect(beforePending.cCents).toBe(90_000);
+    expect(beforePending.safeToSpendCents).toBe(410_000);
+
+    const splitPending: Transaction = {
+      id: "pending_split",
+      accountId: "cheque",
+      categoryId: "shopping",
+      occurredAt: "2026-09-17T14:00:00+02:00",
+      amountCents: -90_000,
+      status: "pending",
+      kind: "card_purchase",
+      source: "sms",
+      merchant: "Shopping Mall",
+      description: "Split purchase pending",
+      needsReview: false,
+      plannedItemIds: ["item1", "item2", "item3"],
+    };
+
+    const afterPending = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [item1, item2, item3],
+      transactions: [splitPending],
+    });
+
+    expect(afterPending.rCents).toBe(0);
+    expect(afterPending.pCents).toBe(90_000);
+    expect(afterPending.cCents).toBe(90_000);
+    expect(afterPending.safeToSpendCents).toBe(410_000);
+
+    expect(afterPending.cCents).toBe(beforePending.cCents);
+    expect(afterPending.safeToSpendCents).toBe(beforePending.safeToSpendCents);
+  });
+
+  test("split payment: uneven split with partial allocation", () => {
+    const large: PlannedItem = {
+      id: "large",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Large expense",
+      plannedCents: 100_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "bills",
+      dueDay: 10,
+      sortOrder: 1,
+    };
+
+    const small: PlannedItem = {
+      id: "small",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Small expense",
+      plannedCents: 20_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "bills",
+      dueDay: 10,
+      sortOrder: 2,
+    };
+
+    const splitTx: Transaction = {
+      id: "split_partial",
+      accountId: "cheque",
+      categoryId: "bills",
+      occurredAt: "2026-09-10T10:00:00+02:00",
+      amountCents: -60_000,
+      status: "posted",
+      kind: "scheduled_payment",
+      source: "sms",
+      merchant: "Bill Provider",
+      description: "Partial split payment",
+      needsReview: false,
+      plannedItemIds: ["large", "small"],
+    };
+
+    const result = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [large, small],
+      transactions: [splitTx],
+    });
+
+    expect(result.rCents).toBe(70_000);
+    expect(result.pCents).toBe(0);
+    expect(result.cCents).toBe(70_000);
+    expect(result.safeToSpendCents).toBe(430_000);
+  });
+
+  test("split payment + unmatched pending: correct C calculation", () => {
+    const plan1: PlannedItem = {
+      id: "plan1",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Plan 1",
+      plannedCents: 50_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "bills",
+      dueDay: 1,
+      sortOrder: 1,
+    };
+
+    const plan2: PlannedItem = {
+      id: "plan2",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Plan 2",
+      plannedCents: 50_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "bills",
+      dueDay: 1,
+      sortOrder: 2,
+    };
+
+    const splitPosted: Transaction = {
+      id: "split_posted",
+      accountId: "cheque",
+      categoryId: "bills",
+      occurredAt: "2026-09-01T10:00:00+02:00",
+      amountCents: -80_000,
+      status: "posted",
+      kind: "scheduled_payment",
+      source: "sms",
+      merchant: "Provider",
+      description: "Split payment",
+      needsReview: false,
+      plannedItemIds: ["plan1", "plan2"],
+    };
+
+    const unmatchedPending: Transaction = {
+      id: "unmatched",
+      accountId: "cheque",
+      categoryId: null,
+      occurredAt: "2026-09-17T10:00:00+02:00",
+      amountCents: -25_000,
+      status: "pending",
+      kind: "card_purchase",
+      source: "sms",
+      merchant: "Store",
+      description: "Unmatched pending",
+      needsReview: false,
+      plannedItemIds: [],
+    };
+
+    const result = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [plan1, plan2],
+      transactions: [splitPosted, unmatchedPending],
+    });
+
+    expect(result.rCents).toBe(20_000);
+    expect(result.pCents).toBe(25_000);
+    expect(result.cCents).toBe(45_000);
+    expect(result.safeToSpendCents).toBe(455_000);
+  });
+
+  test("many pending beyond 100-tx page must all be included for correct STS", () => {
+    const largePlanItem: PlannedItem = {
+      id: "large_plan",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Large planned expense",
+      plannedCents: 500_000,
+      actualCents: 0,
+      accountId: "cheque",
+      categoryId: "bills",
+      dueDay: 1,
+      sortOrder: 1,
+    };
+
+    const pendingTransactions: Transaction[] = [];
+    for (let i = 1; i <= 120; i++) {
+      pendingTransactions.push({
+        id: `pending_${i}`,
+        accountId: "cheque",
+        categoryId: null,
+        occurredAt: `2026-09-${String(Math.min(i % 28 || 1, 28)).padStart(2, "0")}T10:00:00+02:00`,
+        amountCents: -1_000,
+        status: "pending",
+        kind: "card_purchase",
+        source: "sms",
+        merchant: `Merchant ${i}`,
+        description: `Pending ${i}`,
+        needsReview: false,
+        plannedItemIds: [],
+      });
+    }
+
+    const resultWithOnly100 = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [largePlanItem],
+      transactions: pendingTransactions.slice(0, 100),
+    });
+
+    expect(resultWithOnly100.pCents).toBe(100_000);
+    expect(resultWithOnly100.cCents).toBe(600_000);
+    expect(resultWithOnly100.safeToSpendCents).toBe(-100_000);
+
+    const resultWithAll120 = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [largePlanItem],
+      transactions: pendingTransactions,
+    });
+
+    expect(resultWithAll120.pCents).toBe(120_000);
+    expect(resultWithAll120.cCents).toBe(620_000);
+    expect(resultWithAll120.safeToSpendCents).toBe(-120_000);
+
+    expect(resultWithAll120.safeToSpendCents).toBeLessThan(resultWithOnly100.safeToSpendCents);
+  });
 });
