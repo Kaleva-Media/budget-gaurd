@@ -1,9 +1,11 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-17. Source baseline: `436ae6f` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
+Updated: 2026-09-18. Source baseline: `414301e` (Android STS fixes on `cursor/android-sts-fixes-e267`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **D-028 & D-027 (2026-09-18)**: Mirrored Ada's domain STS fixes (`986533f`, PR #13) to Android. D-027: Split payment equal-allocation (|amount|/N, not full×N). D-028: Load ALL open pending outflows for STS accounts (no 100-tx pagination). PR [#14](https://github.com/edward-kalevamedia/budget-gaurd/pull/14) open against `dev` at `414301e`. Includes D-028, D-027, and Edward golden regression tests. Awaiting CI.
 
 - **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
 
