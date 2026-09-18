@@ -218,6 +218,18 @@ export interface SafeToSpendSummary {
   safeToSpendCents: number;
 }
 
+/**
+ * Calculate Safe-to-Spend for the current period.
+ *
+ * **IMPORTANT**: For accurate STS, `transactions` must include ALL open pending outflows,
+ * not just a page. Android's ~100-transaction page will silently drop older pendings
+ * and overstate STS. Use `aggregatePendingOutflows` or a server-side aggregate query
+ * to ensure complete pending coverage.
+ *
+ * Split payments: When a transaction is matched to multiple planned items, the
+ * transaction amount is divided equally across all linked items. This prevents
+ * inflating commitments (C) by counting the same transaction multiple times.
+ */
 export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummary {
   const { accounts, plannedItems, transactions } = input;
 
@@ -228,9 +240,13 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
   const matchedCentsByItem = new Map<string, number>();
   for (const tx of transactions) {
     if (tx.status === "posted" || tx.status === "pending") {
-      for (const plannedId of tx.plannedItemIds) {
-        const current = matchedCentsByItem.get(plannedId) ?? 0;
-        matchedCentsByItem.set(plannedId, current + Math.abs(tx.amountCents));
+      const splitCount = tx.plannedItemIds.length;
+      if (splitCount > 0) {
+        const amountPerItem = Math.abs(tx.amountCents) / splitCount;
+        for (const plannedId of tx.plannedItemIds) {
+          const current = matchedCentsByItem.get(plannedId) ?? 0;
+          matchedCentsByItem.set(plannedId, current + amountPerItem);
+        }
       }
     }
   }
@@ -267,6 +283,47 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
     cCents,
     safeToSpendCents,
   };
+}
+
+/**
+ * Aggregate all pending outflows for Safe-to-Spend calculation.
+ *
+ * Returns the total pending amount (P component) for all pending outflows
+ * on the specified accounts, excluding transfers and reversals.
+ *
+ * **IMPORTANT**: This helper must receive ALL open pending transactions from
+ * the database, not just a paginated subset. Use a dedicated query that filters
+ * by status='pending' without pagination limits.
+ *
+ * For server-side use, consider a SQL aggregate:
+ * ```sql
+ * SELECT SUM(ABS(amount_cents))
+ * FROM transactions
+ * WHERE user_id = $1
+ *   AND entity_id = $2
+ *   AND account_id = ANY($3)
+ *   AND status = 'pending'
+ *   AND amount_cents < 0
+ *   AND kind NOT IN ('transfer', 'reversal')
+ * ```
+ *
+ * @param transactions All open pending transactions (must not be paginated)
+ * @param stsAccountIds Set of account IDs that are included in Safe-to-Spend
+ * @returns Total pending outflows in cents
+ */
+export function aggregatePendingOutflows(
+  transactions: Transaction[],
+  stsAccountIds: Set<string>,
+): number {
+  return transactions
+    .filter(
+      (tx) =>
+        tx.status === "pending" &&
+        tx.amountCents < 0 &&
+        !["transfer", "reversal"].includes(tx.kind) &&
+        stsAccountIds.has(tx.accountId),
+    )
+    .reduce((sum, tx) => sum + Math.abs(tx.amountCents), 0);
 }
 
 export { demoDashboard } from "./demo-data";

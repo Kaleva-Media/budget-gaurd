@@ -155,7 +155,7 @@ class SupabaseCollectorClient private constructor(
                 order("sort_order", Order.ASCENDING)
             }
             .decodeList<PlannedItemRow>()
-        val transactions = client.from("transactions")
+        val periodTransactions = client.from("transactions")
             .select {
                 filter {
                     eq("entity_id", entityRow.id)
@@ -166,6 +166,29 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
+        
+        val stsAccountIds = accounts
+            .filter { it.includeInSafeToSpend }
+            .map { it.id }
+        
+        val allPendingOutflows = if (stsAccountIds.isNotEmpty()) {
+            client.from("transactions")
+                .select {
+                    filter {
+                        eq("entity_id", entityRow.id)
+                        eq("status", "pending")
+                        isIn("account_id", stsAccountIds)
+                    }
+                }
+                .decodeList<TransactionRow>()
+                .filter { it.amountCents < 0 && it.kind != "transfer" && it.kind != "reversal" }
+        } else {
+            emptyList()
+        }
+        
+        val transactions = (periodTransactions + allPendingOutflows)
+            .distinctBy { it.id }
+            .sortedByDescending { it.occurredOn }
         val matchRows = client.from("planned_item_matches")
             .select {
                 filter {
