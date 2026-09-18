@@ -177,7 +177,7 @@ class SupabaseCollectorClient private constructor(
                     filter {
                         eq("entity_id", entityRow.id)
                         eq("status", "pending")
-                        `in`("account_id", stsAccountIds)
+                        isIn("account_id", stsAccountIds)
                     }
                 }
                 .decodeList<TransactionRow>()
