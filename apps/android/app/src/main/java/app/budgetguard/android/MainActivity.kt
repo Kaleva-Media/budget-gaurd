@@ -52,6 +52,7 @@ import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
+import app.budgetguard.android.dashboard.availableBudgetCategories
 import app.budgetguard.android.dashboard.budgetSummary
 import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.formatPeriodRange
@@ -588,12 +589,41 @@ class MainActivity : ComponentActivity() {
         plan.addView(planActions.withTopMargin(16))
         content.addView(plan.withTopMargin(12))
 
-        content.addView(sectionHeading("Flexible budgets", if (data.budgets.isEmpty()) "Not set up" else "Selected period").withTopMargin(28))
+        content.addView(sectionHeading(
+            "Flexible budgets",
+            if (data.budgets.isEmpty()) "Not set up" else "${data.budgets.size} ${if (data.budgets.size == 1) "category" else "categories"}",
+        ).withTopMargin(28))
         if (data.budgets.isEmpty()) {
-            content.addView(emptyCard("Your monthly plan is connected. Flexible category limits can still be managed in the web companion while the mobile planner is completed.").withTopMargin(12))
+            val setup = card(Palette.canvas, radius = 22, padding = 18)
+            setup.addView(label("Set limits for everyday spending", 17f, Palette.ink, bold = true))
+            setup.addView(label(
+                "Choose categories such as groceries, fuel, or meals out. BudgetGuard tracks posted and pending spending against each monthly limit.",
+                13f,
+                Palette.muted,
+            ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(6))
+            setup.addView(action("+  Add category limit", primary = true).apply {
+                setOnClickListener { showBudgetEditor(data, null) }
+            }.withTopMargin(14))
+            content.addView(setup.withTopMargin(12))
         } else {
-            data.budgets.sortedByDescending(Budget::percentage).take(4).forEach { budgetItem ->
+            val flexible = data.budgetSummary()
+            val overview = card(Palette.sage, radius = 20, padding = 16)
+            overview.addView(moneyLine("Available across flexible budgets", formatZar(flexible.remainingCents), Palette.moss))
+            overview.addView(label(
+                "${formatZar(flexible.safeToSpendTodayCents)} per day for ${flexible.daysRemaining} ${if (flexible.daysRemaining == 1) "day" else "days"} · ${formatZar(flexible.committedCents)} pending",
+                12f,
+                Palette.muted,
+            ).withTopMargin(5))
+            content.addView(overview.withTopMargin(12))
+            data.budgets.sortedByDescending(Budget::percentage).forEach { budgetItem ->
                 content.addView(budgetRow(data, budgetItem).withTopMargin(10))
+            }
+            if (availableBudgetCategories(data.categories, data.budgets).isNotEmpty()) {
+                content.addView(action("+  Add another category limit", primary = false).apply {
+                    setOnClickListener { showBudgetEditor(data, null) }
+                }.withTopMargin(10))
+            } else {
+                content.addView(label("Every available category has a limit for this period.", 12f, Palette.muted).withTopMargin(10))
             }
         }
 
@@ -1667,6 +1697,116 @@ class MainActivity : ComponentActivity() {
             .longValueExact()
     }.getOrNull()?.takeIf { it > 0 }
 
+    private fun showBudgetEditor(data: MobileDashboard, budget: Budget?) {
+        val categories = availableBudgetCategories(data.categories, data.budgets, budget?.id)
+        if (categories.isEmpty()) {
+            if (budget == null) {
+                Toast.makeText(this, "Every available category already has a limit.", Toast.LENGTH_LONG).show()
+            } else {
+                showBudgetDeleteConfirmation(data, budget, null)
+            }
+            return
+        }
+
+        val container = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(12)) }
+        container.addView(label(
+            "This limit applies to ${data.entity.name} for ${data.month}. Spending stays in Activity if you later remove the limit.",
+            13f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) })
+        container.addView(label("CATEGORY", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(16))
+        val categorySpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, categories.map { it.name })
+            setSelection(budget?.categoryId?.let { id -> categories.indexOfFirst { it.id == id }.coerceAtLeast(0) } ?: 0)
+            background = rounded(Palette.paper, 16, Palette.line)
+            minimumHeight = dp(52)
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        container.addView(categorySpinner.withTopMargin(5))
+        val amount = input("Monthly limit in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            budget?.let { setText(BigDecimal.valueOf(it.limitCents, 2).toPlainString()) }
+        }
+        container.addView(amount.withTopMargin(10))
+        container.addView(label(
+            "New periods copy the category limits from the previous month when the period is created.",
+            12f,
+            Palette.moss,
+            bold = true,
+        ).withTopMargin(10))
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (budget == null) "Add flexible budget" else "Edit flexible budget")
+            .setView(container)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .apply { if (budget != null) setNeutralButton("Remove limit", null) }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val cents = parseMoneyCents(amount.text.toString())
+                if (cents == null) {
+                    Toast.makeText(this, "Enter a positive monthly limit.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val selectedCategory = categories[categorySpinner.selectedItemPosition]
+                val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                saveButton.isEnabled = false
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.saveBudgetLimit(
+                            entityId = data.entity.id,
+                            periodStart = data.period.startsOn,
+                            budgetId = budget?.id,
+                            categoryId = selectedCategory.id,
+                            limitCents = cents,
+                        ) ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        dialog.dismiss()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        saveButton.isEnabled = true
+                        Toast.makeText(this@MainActivity, "Couldn't save this category limit.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            if (budget != null) {
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                    showBudgetDeleteConfirmation(data, budget, dialog)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showBudgetDeleteConfirmation(
+        data: MobileDashboard,
+        budget: Budget,
+        editorDialog: AlertDialog?,
+    ) {
+        val categoryName = data.categories.firstOrNull { it.id == budget.categoryId }?.name ?: "this category"
+        AlertDialog.Builder(this)
+            .setTitle("Remove $categoryName limit?")
+            .setMessage("Only the monthly limit is removed. Existing transactions and their categories stay unchanged.")
+            .setPositiveButton("Remove") { _, _ ->
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.deleteBudgetLimit(
+                            entityId = data.entity.id,
+                            periodStart = data.period.startsOn,
+                            budgetId = budget.id,
+                        ) ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        editorDialog?.dismiss()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        Toast.makeText(this@MainActivity, "Couldn't remove this category limit.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Keep", null)
+            .show()
+    }
+
     private fun budgetRow(data: MobileDashboard, budget: Budget): View {
         val category = data.categories.firstOrNull { it.id == budget.categoryId }
         val root = card(Palette.canvas, radius = 20, padding = 16)
@@ -1679,6 +1819,17 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(progress.withHeight(5).withTopMargin(10))
         root.addView(label("${formatZar(budget.usedCents)} of ${formatZar(budget.limitCents)}", 12f, Palette.muted).withTopMargin(6))
+        root.addView(label(
+            if (budget.remainingCents >= 0) "${formatZar(budget.remainingCents)} left  ·  Tap to edit"
+            else "${formatZar(-budget.remainingCents)} over limit  ·  Tap to edit",
+            11f,
+            if (budget.remainingCents >= 0) Palette.moss else Palette.coral,
+            bold = true,
+        ).withTopMargin(4))
+        root.isClickable = true
+        root.isFocusable = true
+        root.contentDescription = "Edit ${category?.name ?: "flexible"} budget"
+        root.setOnClickListener { showBudgetEditor(data, budget) }
         return root
     }
 

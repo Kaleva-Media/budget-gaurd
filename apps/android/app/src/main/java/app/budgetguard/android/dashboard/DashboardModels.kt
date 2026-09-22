@@ -109,8 +109,20 @@ data class Budget(
     val committedCents: Long,
 ) {
     val usedCents: Long get() = spentCents + committedCents
+    val remainingCents: Long get() = limitCents - usedCents
     val percentage: Int
         get() = if (limitCents <= 0) 0 else ((usedCents * 100) / limitCents).coerceIn(0, 100).toInt()
+}
+
+fun availableBudgetCategories(
+    categories: List<Category>,
+    budgets: List<Budget>,
+    editingBudgetId: String? = null,
+): List<Category> {
+    val assignedCategoryIds = budgets
+        .filterNot { it.id == editingBudgetId }
+        .mapTo(mutableSetOf(), Budget::categoryId)
+    return categories.filterNot { it.id in assignedCategoryIds }
 }
 
 data class PlannedItem(

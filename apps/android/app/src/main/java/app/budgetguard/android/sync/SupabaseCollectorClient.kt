@@ -539,6 +539,57 @@ class SupabaseCollectorClient private constructor(
         }
     }
 
+    suspend fun saveBudgetLimit(
+        entityId: String,
+        periodStart: String,
+        budgetId: String?,
+        categoryId: String,
+        limitCents: Long,
+    ) {
+        require(limitCents > 0) { "A flexible budget limit must be positive." }
+        val userId = authenticatedUserId()
+        if (budgetId == null) {
+            client.from("budgets").insert(
+                NewBudget(
+                    userId = userId,
+                    entityId = entityId,
+                    categoryId = categoryId,
+                    periodStart = periodStart,
+                    limitCents = limitCents,
+                    rollover = false,
+                ),
+            )
+        } else {
+            client.from("budgets").update(
+                BudgetLimitUpdate(
+                    categoryId = categoryId,
+                    limitCents = limitCents,
+                ),
+            ) {
+                filter {
+                    eq("id", budgetId)
+                    eq("entity_id", entityId)
+                    eq("period_start", periodStart)
+                }
+            }
+        }
+    }
+
+    suspend fun deleteBudgetLimit(
+        entityId: String,
+        periodStart: String,
+        budgetId: String,
+    ) {
+        authenticatedUserId()
+        client.from("budgets").delete {
+            filter {
+                eq("id", budgetId)
+                eq("entity_id", entityId)
+                eq("period_start", periodStart)
+            }
+        }
+    }
+
     suspend fun setPlannedExpensePaid(itemId: String, paid: Boolean) {
         val userId = authenticatedUserId()
         if (paid) {
@@ -1261,6 +1312,12 @@ private data class NewBudget(
     @SerialName("period_start") val periodStart: String,
     @SerialName("limit_cents") val limitCents: Long,
     val rollover: Boolean,
+)
+
+@Serializable
+private data class BudgetLimitUpdate(
+    @SerialName("category_id") val categoryId: String,
+    @SerialName("limit_cents") val limitCents: Long,
 )
 
 private data class AccountResolution(val id: String, val entityId: String, val wasCreated: Boolean)

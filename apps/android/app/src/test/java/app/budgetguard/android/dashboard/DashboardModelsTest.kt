@@ -140,6 +140,34 @@ class DashboardModelsTest {
     }
 
     @Test
+    fun offersOnlyUnassignedCategoriesWhenSettingFlexibleBudgets() {
+        val categories = listOf(
+            Category("food", "Groceries", "#000000", "basket"),
+            Category("fuel", "Fuel", "#000000", "car"),
+            Category("fun", "Entertainment", "#000000", "ticket"),
+        )
+        val budgets = listOf(
+            Budget("food-budget", "food", 300_000, 100_000, 0),
+            Budget("fuel-budget", "fuel", 150_000, 50_000, 0),
+        )
+
+        assertEquals(listOf("fun"), availableBudgetCategories(categories, budgets).map { it.id })
+        assertEquals(
+            listOf("food", "fun"),
+            availableBudgetCategories(categories, budgets, editingBudgetId = "food-budget").map { it.id },
+        )
+    }
+
+    @Test
+    fun flexibleBudgetShowsMoneyLeftOrOverspent() {
+        val withinLimit = Budget("food", "food", 300_000, 100_000, 50_000)
+        val overspent = Budget("fuel", "fuel", 100_000, 120_000, 10_000)
+
+        assertEquals(150_000, withinLimit.remainingCents)
+        assertEquals(-30_000, overspent.remainingCents)
+    }
+
+    @Test
     fun searchesPlansAndGroupsPaidExpensesSeparately() {
         val items = listOf(
             PlannedItem("salary", "income", "income", "Salary", 500_000, 0, null, null, 25, 1),
