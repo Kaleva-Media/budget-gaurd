@@ -5,6 +5,14 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-09-22 planned daily allowance clarification (source only)**: Android now
+  shows a future period's projected plan surplus divided by that month's day count
+  as the planned daily allowance, instead of relabelling the current account-backed
+  Safe-to-spend total. Negative forecasts are labelled as daily shortfalls. Current
+  periods retain account-backed Safe to spend, while past periods show their plan
+  result rather than today's account balances. Android unit tests, debug compilation,
+  APK assembly, all 23 TypeScript domain tests, and TypeScript checks pass. This
+  source change is not yet merged, deployed, or installed-device verified.
 - **2026-09-22 search/paid deployment**: `7e26a20` is live. Deployment run
   `35749146989` completed successfully after a restore-tested database backup,
   applied one pending migration (`20260922122818_planned_item_payment_confirmations.sql`),

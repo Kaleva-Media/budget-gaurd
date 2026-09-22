@@ -65,16 +65,71 @@ class DashboardModelsTest {
 
     @Test
     fun givesFuturePeriodsAFullMonthOfDailyPlanning() {
+        val futurePeriod = BudgetPeriod("future", "2026-10-01", "draft", 397_100)
+        val futureDashboard = dashboard(
+            selectedPeriod = futurePeriod,
+            plannedItems = listOf(
+                PlannedItem("salary", "income", "income", "Salary", 12_453_255, 0, null, null, 25, 1),
+                PlannedItem("rent", "expense", "fixed_expense", "Rent", 11_177_188, 0, null, null, 1, 2),
+            ),
+        )
+
+        val summary = futureDashboard.homeHeroSummary(LocalDate.of(2026, 9, 21))
+
+        assertEquals(HomeHeroMode.FUTURE_DAILY_PLAN, summary.mode)
+        assertEquals(31, summary.dayCount)
+        assertEquals(1_673_167, summary.planPositionCents)
+        assertEquals(53_973, summary.amountCents)
+    }
+
+    @Test
+    fun usesAccountBackedSafeToSpendOnlyForTheCurrentPeriod() {
+        val currentDashboard = dashboard(
+            plannedItems = listOf(
+                PlannedItem("rent", "expense", "fixed_expense", "Rent", 600_000, 0, null, null, 1, 1),
+            ),
+        )
+
+        val summary = currentDashboard.homeHeroSummary(LocalDate.of(2026, 9, 21))
+
+        assertEquals(HomeHeroMode.CURRENT_SAFE_TO_SPEND, summary.mode)
+        assertEquals(-600_000, summary.amountCents)
+        assertEquals(null, summary.dayCount)
+    }
+
+    @Test
+    fun preservesAFuturePlanShortfallWhenConvertingItToADailyAmount() {
         val futurePeriod = BudgetPeriod("future", "2026-10-01", "draft", 0)
         val futureDashboard = dashboard(
             selectedPeriod = futurePeriod,
-            budgets = listOf(Budget("budget", "food", 310_000, 0, 0)),
+            plannedItems = listOf(
+                PlannedItem("expense", "expense", "fixed_expense", "Expense", 100_000, 0, null, null, 1, 1),
+            ),
         )
 
-        val summary = futureDashboard.budgetSummary(LocalDate.of(2026, 9, 21))
+        val summary = futureDashboard.homeHeroSummary(LocalDate.of(2026, 9, 21))
 
-        assertEquals(31, summary.daysRemaining)
-        assertEquals(10_000, summary.safeToSpendTodayCents)
+        assertEquals(HomeHeroMode.FUTURE_DAILY_PLAN, summary.mode)
+        assertEquals(-100_000, summary.planPositionCents)
+        assertEquals(-3_226, summary.amountCents)
+    }
+
+    @Test
+    fun pastPeriodsShowTheirPlanResultInsteadOfCurrentAccountBalances() {
+        val pastPeriod = BudgetPeriod("past", "2026-08-01", "closed", 250_000)
+        val pastDashboard = dashboard(
+            selectedPeriod = pastPeriod,
+            plannedItems = listOf(
+                PlannedItem("income", "income", "income", "Income", 1_000_000, 0, null, null, 25, 1),
+                PlannedItem("expenses", "expense", "fixed_expense", "Expenses", 900_000, 0, null, null, 1, 2),
+            ),
+        )
+
+        val summary = pastDashboard.homeHeroSummary(LocalDate.of(2026, 9, 21))
+
+        assertEquals(HomeHeroMode.PAST_PLAN_RESULT, summary.mode)
+        assertEquals(350_000, summary.amountCents)
+        assertEquals(null, summary.dayCount)
     }
 
     @Test

@@ -202,6 +202,19 @@ data class SafeToSpendSummary(
     val safeToSpendCents: Long,
 )
 
+enum class HomeHeroMode {
+    CURRENT_SAFE_TO_SPEND,
+    FUTURE_DAILY_PLAN,
+    PAST_PLAN_RESULT,
+}
+
+data class HomeHeroSummary(
+    val mode: HomeHeroMode,
+    val amountCents: Long,
+    val planPositionCents: Long,
+    val dayCount: Int?,
+)
+
 fun MobileDashboard.cashflowSummary(): CashflowSummary {
     val income = plannedItems.filter { it.direction == "income" }.sumOf { it.plannedCents }
     val expenses = plannedItems.filter { it.direction == "expense" }.sumOf { it.plannedCents }
@@ -212,6 +225,42 @@ fun MobileDashboard.cashflowSummary(): CashflowSummary {
         projectedSurplusCents = available - expenses,
         allocationPercentage = if (available > 0) ((expenses * 100) / available).toInt() else 0,
     )
+}
+
+fun MobileDashboard.homeHeroSummary(today: LocalDate = LocalDate.now()): HomeHeroSummary {
+    val selectedMonth = YearMonth.from(LocalDate.parse(period.startsOn))
+    val currentMonth = YearMonth.from(today)
+    val planPositionCents = cashflowSummary().projectedSurplusCents
+
+    return when {
+        selectedMonth.isAfter(currentMonth) -> {
+            val dayCount = selectedMonth.lengthOfMonth()
+            HomeHeroSummary(
+                mode = HomeHeroMode.FUTURE_DAILY_PLAN,
+                amountCents = dailyPlanAmountCents(planPositionCents, dayCount),
+                planPositionCents = planPositionCents,
+                dayCount = dayCount,
+            )
+        }
+        selectedMonth.isBefore(currentMonth) -> HomeHeroSummary(
+            mode = HomeHeroMode.PAST_PLAN_RESULT,
+            amountCents = planPositionCents,
+            planPositionCents = planPositionCents,
+            dayCount = null,
+        )
+        else -> HomeHeroSummary(
+            mode = HomeHeroMode.CURRENT_SAFE_TO_SPEND,
+            amountCents = summariseSafeToSpend().safeToSpendCents,
+            planPositionCents = planPositionCents,
+            dayCount = null,
+        )
+    }
+}
+
+private fun dailyPlanAmountCents(planPositionCents: Long, dayCount: Int): Long {
+    val wholeCents = planPositionCents / dayCount
+    val remainder = planPositionCents % dayCount
+    return if (planPositionCents < 0 && remainder != 0L) wholeCents - 1 else wholeCents
 }
 
 fun MobileDashboard.budgetSummary(today: LocalDate = LocalDate.now()): BudgetSummary {

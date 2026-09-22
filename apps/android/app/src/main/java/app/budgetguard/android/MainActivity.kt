@@ -47,6 +47,7 @@ import app.budgetguard.android.dashboard.Account
 import app.budgetguard.android.dashboard.Budget
 import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.ExpenseOrder
+import app.budgetguard.android.dashboard.HomeHeroMode
 import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
@@ -57,7 +58,7 @@ import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
 import app.budgetguard.android.dashboard.groupPlannedItems
-import app.budgetguard.android.dashboard.summariseSafeToSpend
+import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -409,19 +410,48 @@ class MainActivity : ComponentActivity() {
         val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
         content.addView(buildHeader("Home"))
 
-        val sts = data.summariseSafeToSpend()
         val cashflow = data.cashflowSummary()
-        val selectedMonth = YearMonth.from(LocalDate.parse(data.period.startsOn))
-        val heroLabel = when {
-            selectedMonth.isAfter(YearMonth.now()) -> "PLANNED DAILY ALLOWANCE"
-            selectedMonth.isBefore(YearMonth.now()) -> "PERIOD BUDGET POSITION"
-            else -> "SAFE TO SPEND"
+        val heroSummary = data.homeHeroSummary()
+        val heroLabel = when (heroSummary.mode) {
+            HomeHeroMode.FUTURE_DAILY_PLAN -> if (heroSummary.planPositionCents < 0) {
+                "PLANNED DAILY SHORTFALL"
+            } else {
+                "PLANNED DAILY ALLOWANCE"
+            }
+            HomeHeroMode.PAST_PLAN_RESULT -> "PERIOD PLAN RESULT"
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> if (heroSummary.amountCents < 0) {
+                "SAFE-TO-SPEND SHORTFALL"
+            } else {
+                "SAFE TO SPEND"
+            }
+        }
+        val heroDetail = when (heroSummary.mode) {
+            HomeHeroMode.FUTURE_DAILY_PLAN -> {
+                val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
+                "${formatZar(heroSummary.planPositionCents)} projected $position ÷ ${heroSummary.dayCount} days"
+            }
+            HomeHeroMode.PAST_PLAN_RESULT -> {
+                val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
+                "Projected plan $position (not historical cash)"
+            }
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> {
+                if (heroSummary.amountCents < 0) {
+                    "Included balances do not cover remaining commitments"
+                } else {
+                    "After unpaid planned expenses and pending payments"
+                }
+            }
+        }
+        val heroGuidance = when (heroSummary.mode) {
+            HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; this is not cash."
+            HomeHeroMode.PAST_PLAN_RESULT -> "Review activity for what actually happened."
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Based on accounts included in Safe to spend."
         }
         val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
-        hero.addView(label(formatZar(sts.safeToSpendCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
-        hero.addView(label("Plan leftover (not cash)", 14f, Palette.inkMuted).withTopMargin(7))
-        hero.addView(label("Use Safe to spend before you buy something.", 14f, Palette.inkMuted).withTopMargin(7))
+        hero.addView(label(formatZar(heroSummary.amountCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
+        hero.addView(label(heroDetail, 14f, Palette.inkMuted).withTopMargin(7))
+        hero.addView(label(heroGuidance, 14f, Palette.inkMuted).withTopMargin(7))
         val budget = data.budgetSummary()
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
