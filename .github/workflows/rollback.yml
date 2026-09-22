@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   rollback:
-    if: github.repository == 'edward-kalevamedia/budget-gaurd' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Kaleva-Media/budget-gaurd' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production-rollback
     timeout-minutes: 10
