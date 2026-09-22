@@ -1,10 +1,17 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-22. Production source baseline: `66ed569`; current `main` candidate: `9dc6ddf`.
+Updated: 2026-09-22. Production source baseline: `7e26a20` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
+- **2026-09-22 search/paid deployment**: `7e26a20` is live. Deployment run
+  `35749146989` completed successfully after a restore-tested database backup,
+  applied one pending migration (`20260922122818_planned_item_payment_confirmations.sql`),
+  activated the matching web/function release, and passed the controller smoke
+  checks. Public Auth health passed and anonymous REST access to the new table was
+  denied. The Android debug APK was built from this main revision and passed parser,
+  app unit, and assembly tasks; installed-device behaviour remains unverified.
 - **2026-09-22 production deployment**: `66ed569` is live. Deployment run
   `35710368498` completed successfully after a restore-tested database backup,
   applied `20260922043832_planned_item_moves_and_category_scopes.sql`, activated
@@ -16,13 +23,13 @@ This document records repository state and historical observations, not a fresh 
   pending because the current GitHub CLI token lacks the `admin:org` OAuth scope.
 - **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/Kaleva-Media/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
 
-## Search, expense ordering, and paid grouping — 2026-09-22 source change
+## Search, expense ordering, and paid grouping — 2026-09-22 deployed
 
 The `codex/search-paid-expenses` branch adds plan search across income and expenses on Android and web, orders expenses by name or highest amount, and separates To pay from Paid. An unpaid expense can be manually marked paid in one action; a manual confirmation can be undone, while an expense settled by matched transactions remains paid.
 
 Manual confirmation is stored in the owner-scoped `planned_item_payment_confirmations` table. It does not create a transaction or alter an account balance. The RLS insert policy accepts only an owned expense, and authenticated clients receive only select/insert/delete grants. Safe-to-spend and cash-flow calculations treat the confirmation as settlement without adding it to transaction-derived progress, preventing double-counting.
 
-Source verification passed 23 TypeScript domain tests, TypeScript checks, the production web build, a headless production-preview interaction covering search/order/paid/undo behavior, Android app unit tests and Kotlin compilation, deployment policy checks, all 14 pgTAP files (62 tests), local schema lint, and Supabase security/performance advisors with no issues. This feature migration and UI have not been deployed or device-verified as of this note.
+Source verification passed 23 TypeScript domain tests, TypeScript checks, the production web build, a headless production-preview interaction covering search/order/paid/undo behavior, Android app unit tests and Kotlin compilation, deployment policy checks, all 14 pgTAP files (62 tests), local schema lint, and Supabase security/performance advisors with no issues. The feature migration and web UI are deployed at `7e26a20`; the APK is built but has not yet been device-verified.
 
 ## Planned-item moves and category scopes — 2026-09-22 source change
 
