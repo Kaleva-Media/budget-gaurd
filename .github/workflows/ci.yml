@@ -3,34 +3,157 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.2.20
       - run: bun install --frozen-lockfile
       - run: bun run test
       - run: bun run check
-      - run: bun run build
+      - name: Build configured production web platform
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
+          bun run build
+      - run: python3 deploy/build_bundle.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-deploy-${{ github.sha }}
+          path: web-deploy.tar.gz
+          if-no-files-found: error
+          retention-days: 30
 
-  android-parser:
+  browser:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/android
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.20
+      - run: bun install --frozen-lockfile
+      - run: |
+          python3 -m venv /tmp/browser-tests
+          /tmp/browser-tests/bin/pip install -r deploy/tests/requirements-browser.txt
+          /tmp/browser-tests/bin/playwright install --with-deps chromium
+      - run: bun run build
+      - run: /tmp/browser-tests/bin/python deploy/tests/web_smoke.py --mode demo
+      - run: bun run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      - run: /tmp/browser-tests/bin/python deploy/tests/web_smoke.py --mode auth
+
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.20
+      - run: bun install --frozen-lockfile
+      - run: bun run test:email
+      - run: bun run --cwd=apps/email-ingress check
+      - run: node ../../node_modules/wrangler/bin/wrangler.js deploy --dry-run
+        working-directory: apps/email-ingress
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: '2.9.6'
+      - run: deno check --config supabase/functions/invoice-ingest/deno.json supabase/functions/invoice-ingest/index.ts
+      - run: deno test supabase/functions/invoice-ingest/*_test.ts
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :parser:test --no-daemon
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - run: ./gradlew :parser:test :app:testDebugUnitTest --no-daemon
+        working-directory: apps/android
+
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1
+        with:
+          version: 2.95.4
+      - name: Isolate ephemeral local services before startup
+        run: |
+          set -euo pipefail
+          test -z "$(docker ps -aq --filter name=supabase_db_budget-guard)"
+          iface=$(ip -o route show to default | awk '{print $5}' | head -n 1)
+          test -n "$iface"
+          # Docker published ports bypass INPUT; protect forwarded traffic too.
+          sudo iptables -I DOCKER-USER -i "$iface" -m conntrack --ctstate NEW -j DROP
+          sudo iptables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
+          sudo ip6tables -I INPUT -i "$iface" -p tcp -m multiport --dports 54320:54329 -j REJECT
+          if sudo ip6tables -S DOCKER-USER >/dev/null 2>&1; then
+            sudo ip6tables -I DOCKER-USER -i "$iface" -m conntrack --ctstate NEW -j DROP
+          fi
+      - name: Apply every migration to a fresh isolated database
+        # Fresh hosted runner: start already applies the complete migration chain.
+        # Suppress the CLI's ephemeral local secret-key/status output.
+        run: supabase start >/dev/null
+      - run: supabase test db
+      - if: always()
+        run: supabase stop --no-backup
+
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m unittest discover -s deploy/tests -v
+      - run: python3 deploy/policy.py
+      - name: Applied migration immutability
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 deploy/policy.py --base "$BASE_SHA"
+
+  all-tests:
+    if: always()
+    needs: [web, browser, email, android, database, policy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every suite to pass; skipped/cancelled is failure
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 -c 'import json,os; results=json.loads(os.environ["RESULTS"]); assert results and all(job["result"]=="success" for job in results.values()), "One or more required suites did not pass"'

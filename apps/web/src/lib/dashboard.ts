@@ -115,7 +115,11 @@ export async function loadDashboard(): Promise<DashboardData> {
         .eq("entity_id", entityId)
         .eq("is_active", true)
         .order("display_order"),
-      supabase.from("categories").select("id,name,colour,icon").order("sort_order"),
+      supabase
+        .from("categories")
+        .select("id,name,colour,icon")
+        .eq("category_scope", "personal")
+        .order("sort_order"),
       supabase
         .from("budget_progress")
         .select("id,category_id,limit_cents,spent_cents,committed_cents")

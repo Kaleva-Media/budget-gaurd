@@ -15,6 +15,7 @@ import app.budgetguard.android.dashboard.InvoiceInbox
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
+import app.budgetguard.android.dashboard.categoryScopeForEntityKind
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.sms.AccountMessageCandidate
 import io.github.jan.supabase.SupabaseClient
@@ -48,6 +49,13 @@ data class AccountDiscoveryImportReport(
     val created: Int,
     val moved: Int,
     val reactivated: Int,
+)
+
+data class PlannedItemMoveTarget(
+    val entityId: String,
+    val entityName: String,
+    val periodId: String,
+    val startsOn: String,
 )
 
 class NotAuthenticatedException : Exception()
@@ -138,8 +146,12 @@ class SupabaseCollectorClient private constructor(
                 order("display_order", Order.ASCENDING)
             }
             .decodeList<AccountRow>()
+        val categoryScope = categoryScopeForEntityKind(entityRow.kind)
         val categories = client.from("categories")
-            .select { order("sort_order", Order.ASCENDING) }
+            .select {
+                filter { eq("category_scope", categoryScope) }
+                order("sort_order", Order.ASCENDING)
+            }
             .decodeList<CategoryRow>()
         val budgets = client.from("budget_progress")
             .select {
@@ -166,6 +178,14 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
+        val matchRows = client.from("planned_item_matches")
+            .select {
+                filter {
+                    eq("user_id", userId)
+                }
+            }
+            .decodeList<MatchRow>()
+        val matchesByTransaction = matchRows.groupBy({ it.transactionId }, { it.plannedItemId })
         val invoiceInbox = client.from("invoice_inboxes")
             .select {
                 filter { eq("is_active", true) }
@@ -241,6 +261,7 @@ class SupabaseCollectorClient private constructor(
                     merchant = row.merchant ?: "Unknown transaction",
                     description = row.description.orEmpty(),
                     needsReview = row.needsReview,
+                    plannedItemIds = matchesByTransaction[row.id].orEmpty(),
                 )
             },
             invoiceInbox = invoiceInbox?.let { InvoiceInbox(it.address) },
@@ -509,6 +530,40 @@ class SupabaseCollectorClient private constructor(
                 eq("direction", "expense")
             }
         }
+    }
+
+    suspend fun loadPlannedItemMoveTargets(): List<PlannedItemMoveTarget> {
+        authenticatedUserId()
+        val entities = client.from("entities")
+            .select {
+                filter { eq("is_active", true) }
+                order("display_order", Order.ASCENDING)
+            }
+            .decodeList<EntityRow>()
+        return entities.flatMap { entity ->
+            loadPeriods(entity.id).map { period ->
+                PlannedItemMoveTarget(
+                    entityId = entity.id,
+                    entityName = entity.name,
+                    periodId = period.id,
+                    startsOn = period.startsOn,
+                )
+            }
+        }.sortedWith(compareBy<PlannedItemMoveTarget> { it.entityName }.thenByDescending { it.startsOn })
+    }
+
+    suspend fun movePlannedItem(
+        itemId: String,
+        targetEntityId: String,
+        targetPeriodId: String,
+    ) {
+        authenticatedUserId()
+        val parameters = buildJsonObject {
+            put("p_planned_item_id", itemId)
+            put("p_target_entity_id", targetEntityId)
+            put("p_target_budget_period_id", targetPeriodId)
+        }
+        client.postgrest.rpc("move_planned_item", parameters)
     }
 
     suspend fun updateTransactionCategory(transactionId: String, categoryId: String?) {
@@ -972,6 +1027,12 @@ private data class TransactionRow(
     val merchant: String?,
     val description: String?,
     @SerialName("needs_review") val needsReview: Boolean,
+)
+
+@Serializable
+private data class MatchRow(
+    @SerialName("transaction_id") val transactionId: String,
+    @SerialName("planned_item_id") val plannedItemId: String,
 )
 
 @Serializable

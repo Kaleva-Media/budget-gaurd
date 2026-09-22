@@ -1,7 +1,104 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-17. Source baseline: `9a19439` (initial application commit on `main`).
+Updated: 2026-09-22. Source baseline: `3ae0d44` (`dev`) plus the planned-item move deployment candidate.
 This document records repository state and historical observations, not a fresh production audit.
+
+## Recent changes
+
+- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
+
+## Planned-item moves and category scopes — 2026-09-22 source change
+
+The `codex/deploy-planned-item-moves` branch adds an Android move action for planned
+income and expenses. Users can choose any existing period across active entities.
+Same-entity moves keep account/category routing; cross-entity moves clear the old
+account and clear a category when it crosses between the personal and business
+taxonomies. Moves with recorded payment matches are refused so reconciled actuals
+cannot silently change month or entity. The database operation is atomic,
+authenticated, and ownership-scoped.
+
+Categories now have a `personal` or `business` scope. Existing categories remain
+personal, while fourteen business categories are added for existing and new users.
+Android selects the taxonomy from the active entity kind; the current web companion
+continues to use the default Personal entity and filters to personal categories.
+This is a source and forward-migration change only: it is not merged, deployed, or
+device-verified as of this note. It has been integrated on top of all current
+`dev` commits in `codex/deploy-planned-item-moves`. The move RPC locks the source
+row, remains `security invoker`, and is executable only by `authenticated`; the
+business-category trigger is also `security invoker`. The migration checker now
+permits only fixed trigger invocation and authenticated-only function grants while
+continuing to reject dynamic execution and privileged functions.
+
+The exact combined candidate passed 20 domain tests, TypeScript checks, configured
+and demo web builds, both headless browser modes, five email tests, Worker dry-run,
+four Deno tests, Android parser/app unit tests, debug APK assembly, 14 deployment
+policy/controller tests, and deployment-bundle packaging. A fresh disposable
+Supabase stack applied every migration; all 13 pgTAP files passed (55 tests),
+including move semantics and ownership isolation, and the local Supabase schema
+linter reported no errors. The disposable stack was removed.
+
+## Deployment governance — 2026-09-17
+
+Read `docs/deployment-policy.md` before production work. Guardrails are being
+delivered through `chore/deployment-guardrails`, not a direct push to `main`.
+
+Live GitHub controls: protected main requires strict/up-to-date `all-tests`
+bound to GitHub Actions, one independent approving review, stale-review
+dismissal, last-push approval, code-owner review and resolved conversations.
+Administrators are included; force pushes/deletions are prohibited; squash only.
+Production and rollback environments permit only main; rollback requires owner
+approval. CI credentials are environment-scoped and host keys pinned.
+
+The root-owned forced-command controller is installed and its private-port/RLS/
+invoker-view/private-bucket verification passes. The dedicated deployment key
+successfully verified and was refused arbitrary shell execution. BudgetGuard's
+database and Studio have no published ports; pooler and Envoy are loopback-only.
+The shared host has unrelated public services; no changes were made to those.
+
+A full database dump was successfully restored into a temporary private test
+database **before** adopting the five already-applied historical migration
+checksums. The first restore attempt correctly blocked adoption because Supabase
+postgres cannot set extension restore parameters; the internal admin was then
+used for the temporary restore only. Historical application SQL was not replayed.
+The baseline evidence and dump checksum are protected in
+`/var/lib/budgetguard-deploy/baseline.json`; the private ledger is
+`deployment_control.migrations`.
+
+The guardrail workflows are present on `dev` and in the combined deployment
+candidate but remain inactive on `main` until the reviewed merge. They expand CI
+to web/domain, built-browser demo/auth checks, Android parser/app tests, email
+tests/checks/Worker dry run, Deno tests/checks, isolated database migration/pgTAP
+tests, and controller/migration-policy tests. Automated
+web/invoice-function deployment and approved code rollback are committed in the
+guardrails branch but are **not activated or end-to-end verified until its PR
+is independently reviewed and merged**. Retained schema is additive; database
+restore is separate owner-authorized recovery. Same-host dumps do not protect
+Storage file bytes or provide off-host disaster recovery.
+
+Remaining governance setup: both desktop GitHub connections authenticate as
+the owner and cannot independently approve an owner-authored PR. Provision a
+non-admin agent author or another independent collaborator; do not bypass review.
+Sole-owner CODEOWNERS can also block owner-authored future PRs. Removing mandatory
+owner-only approval was rejected by the safety review as an unauthorized control
+weakening; it remains enabled. Owner authorization is required to change it.
+Cloudflare email-Worker automated publishing still needs a scoped credential;
+its CI dry run is not a live deployment or proof of invoice delivery.
+
+Local controller tests (13), domain tests (5), email tests (5), Deno tests (4),
+type checks, configured web build, both headless browser modes and Android
+parser/app unit tests passed. The Worker dry-run bundle passed without publishing.
+Local Supabase tests were initially unavailable because Docker's API returned
+500. GitHub CI exposed a retired Android action default (`tools` package), now
+corrected to platform-tools. A redundant local reset hit a 502 during restart;
+CI now checks a fresh inbound-firewalled stack directly instead. Every suite and
+the aggregate `all-tests` passed on application/controller commit `d4c9508`,
+including migration-chain and cross-user/cross-entity/private-PDF denial tests.
+Evidence: [push CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160606331)
+and [PR CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160609889).
+Any subsequent documentation-only commit must also pass the full latest-commit
+gate; see [PR #1](https://github.com/edward-kalevamedia/budget-gaurd/pull/1) for that
+current status. No merge/deployment bypass was used. Production public auth
+health passed and anonymous bank-account API access was denied.
 
 ## What the user wants
 
@@ -20,9 +117,9 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 | Web companion | Overview, monthly plan, account lanes, activity and Quick Sort | TypeScript checks passed before initial push |
 | Payment initiation | None | Not implemented; never infer permission from an invoice |
 
-Android source build version: `0.5.1`, version code `12`. This does not prove which APK a user currently has installed.
+Android source build version: `0.5.2`, version code `13`. This does not prove which APK a user currently has installed.
 
-Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. CI currently checks domain/web tests, web type checks/build, and Android parser tests; it does **not** cover email ingress, Deno functions, database RLS, or installed Android UI.
+Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 
 ## Highest priority: finish live invoice delivery
 
@@ -85,7 +182,11 @@ Git access note: the machine's SSH identity authenticated as `edward-digify` and
 
 ## Operational checklist
 
-This is a safety/checklist runbook, not a claim that production deployment is automated. Exact release naming, function mount paths, migration tracking, and full rollback version IDs must be established from the live system.
+The guardrails workflows replace manual web/function/migration deployment after
+reviewed activation. The checklist below is historical operator guidance; use
+`docs/deployment-policy.md` and the deployment README for the current guarded
+workflow. Worker publishing and destructive recovery still require scoped
+operator authorization.
 
 ### Preflight and read-only diagnostics
 
@@ -128,6 +229,10 @@ Check Wrangler's account/version output and secret bindings before publishing; d
 - Database rollback is not “delete a migration”: prefer a forward corrective migration. Restoring a backup can lose newer writes and requires explicit recovery authorization and a coordinated plan.
 - Backups currently are same-host database dumps with 14-day retention; off-host recovery and private PDF Storage backup coverage are not established. Do not claim full disaster recovery from a database dump alone.
 
+## Recent completions
+
+- **M2 safe-to-spend** (PR #4, commit `436ae6f`): Canonical `docs/safe-to-spend.md` definition, `summariseSafeToSpend` domain export with UK spelling, 15 golden tests. STS = B − C formula locked; Neo dedup rule implemented (P includes all pending, matched + unmatched); planned income excluded; negative STS allowed. Android must mirror the return fields `{ bCents, rCents, pCents, cCents, safeToSpendCents }`.
+
 ## Other unfinished work and decisions
 
 - Pending-card reservation/settlement/reversal reconciliation and matching actual payments to planned items.
@@ -139,5 +244,6 @@ Check Wrangler's account/version output and secret bindings before publishing; d
 - Private APK distribution versus Google Play SMS-permission approval; release signing and distribution process.
 - Daily spending notifications only after reliable collection/sync is demonstrated.
 - CI for invoice ingress, Deno extraction/signatures, database RLS, and Android app tests.
+- Security and DR posture documented in `docs/risk-register.md`; R4 (DR gaps) remains Open pending off-host backup plan.
 
 Some production README/bootstrap notes predate multi-entity onboarding. Inspect the latest migrations and actual runtime data before relying on account seed counts or legacy mappings. Future agents should keep this document concise and replace historical blockers with verified outcomes as work completes.

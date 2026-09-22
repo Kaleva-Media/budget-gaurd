@@ -52,6 +52,7 @@ import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
+import app.budgetguard.android.dashboard.summariseSafeToSpend
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -401,23 +402,20 @@ class MainActivity : ComponentActivity() {
         val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
         content.addView(buildHeader("Home"))
 
-        val budget = data.budgetSummary()
+        val sts = data.summariseSafeToSpend()
         val cashflow = data.cashflowSummary()
         val selectedMonth = YearMonth.from(LocalDate.parse(data.period.startsOn))
         val heroLabel = when {
             selectedMonth.isAfter(YearMonth.now()) -> "PLANNED DAILY ALLOWANCE"
             selectedMonth.isBefore(YearMonth.now()) -> "PERIOD BUDGET POSITION"
-            else -> "SAFE TO SPEND TODAY"
+            else -> "SAFE TO SPEND"
         }
         val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
-        hero.addView(label(formatZar(budget.safeToSpendTodayCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
-        hero.addView(label(
-            if (data.budgets.isEmpty()) "Add flexible budgets to activate your daily guardrail."
-            else "${formatZar(budget.remainingCents)} left across flexible budgets · ${budget.daysRemaining} days",
-            14f,
-            Palette.inkMuted,
-        ).withTopMargin(7))
+        hero.addView(label(formatZar(sts.safeToSpendCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
+        hero.addView(label("Plan leftover (not cash)", 14f, Palette.inkMuted).withTopMargin(7))
+        hero.addView(label("Use Safe to spend before you buy something.", 14f, Palette.inkMuted).withTopMargin(7))
+        val budget = data.budgetSummary()
         val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = if (budget.limitCents == 0L) 0 else (((budget.spentCents + budget.committedCents) * 100) / budget.limitCents).coerceIn(0, 100).toInt()
@@ -1214,6 +1212,11 @@ class MainActivity : ComponentActivity() {
         container.addView(accountSpinner.withTopMargin(10))
         container.addView(dueDay.withTopMargin(10))
         container.addView(recurring.withTopMargin(8))
+        val moveButton = item?.let {
+            action("Move to another month or entity", primary = false).also { button ->
+                container.addView(button.withTopMargin(10))
+            }
+        }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (item == null) "Add income" else "Edit income")
@@ -1223,6 +1226,9 @@ class MainActivity : ComponentActivity() {
             .apply { if (item != null) setNeutralButton("Delete income", null) }
             .create()
         dialog.setOnShowListener {
+            if (item != null) {
+                moveButton?.setOnClickListener { showPlannedItemMoveDialog(data, item, dialog) }
+            }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val incomeName = name.text.toString().trim()
                 val cents = parseMoneyCents(amount.text.toString())
@@ -1370,6 +1376,11 @@ class MainActivity : ComponentActivity() {
         container.addView(categorySpinner.withTopMargin(10))
         container.addView(dueDay.withTopMargin(10))
         container.addView(recurring.withTopMargin(8))
+        val moveButton = item?.let {
+            action("Move to another month or entity", primary = false).also { button ->
+                container.addView(button.withTopMargin(10))
+            }
+        }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (item == null) "Add expense" else "Edit expense")
@@ -1379,6 +1390,9 @@ class MainActivity : ComponentActivity() {
             .apply { if (item != null) setNeutralButton("Delete expense", null) }
             .create()
         dialog.setOnShowListener {
+            if (item != null) {
+                moveButton?.setOnClickListener { showPlannedItemMoveDialog(data, item, dialog) }
+            }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val expenseName = name.text.toString().trim()
                 val cents = parseMoneyCents(amount.text.toString())
@@ -1436,6 +1450,89 @@ class MainActivity : ComponentActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun showPlannedItemMoveDialog(
+        data: MobileDashboard,
+        item: PlannedItem,
+        editorDialog: AlertDialog,
+    ) {
+        lifecycleScope.launch {
+            val targets = runCatching {
+                applicationState.collectorClient?.loadPlannedItemMoveTargets().orEmpty()
+            }.getOrElse {
+                Toast.makeText(this@MainActivity, "Couldn't load the available months.", Toast.LENGTH_LONG).show()
+                return@launch
+            }.filterNot { target ->
+                target.entityId == data.entity.id && target.periodId == data.period.id
+            }
+
+            if (targets.isEmpty()) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Create another budget period first, then move this entry.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+
+            val targetSpinner = Spinner(this@MainActivity).apply {
+                adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    targets.map { "${it.entityName} · ${formatPeriodRange(it.startsOn)}" },
+                )
+                background = rounded(Palette.paper, 16, Palette.line)
+                minimumHeight = dp(52)
+                setPadding(dp(10), 0, dp(10), 0)
+            }
+            val content = vertical().apply {
+                setPadding(dp(22), dp(4), dp(22), dp(12))
+                addView(label(
+                    "Choose the destination. Moving between entities removes the old account, and an incompatible personal or business category is cleared.",
+                    13f,
+                    Palette.muted,
+                ).apply { setLineSpacing(dp(2).toFloat(), 1f) })
+                addView(targetSpinner.withTopMargin(14))
+            }
+            val moveDialog = AlertDialog.Builder(this@MainActivity)
+                .setTitle("Move ${item.name}")
+                .setView(content)
+                .setPositiveButton("Move", null)
+                .setNegativeButton("Cancel", null)
+                .create()
+            moveDialog.setOnShowListener {
+                moveDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val target = targets[targetSpinner.selectedItemPosition]
+                    val button = moveDialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    button.isEnabled = false
+                    lifecycleScope.launch {
+                        runCatching {
+                            applicationState.collectorClient?.movePlannedItem(
+                                itemId = item.id,
+                                targetEntityId = target.entityId,
+                                targetPeriodId = target.periodId,
+                            )
+                        }.onSuccess {
+                            moveDialog.dismiss()
+                            editorDialog.dismiss()
+                            selectedEntityId = target.entityId
+                            selectedPeriodStart = target.startsOn
+                            loadDashboard(keepContentVisible = true)
+                            Toast.makeText(this@MainActivity, "Entry moved.", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            button.isEnabled = true
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Couldn't move this entry. Entries with matched payments must remain in their original period.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+            }
+            moveDialog.show()
+        }
     }
 
     private fun parseMoneyCents(value: String): Long? = runCatching {

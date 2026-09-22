@@ -8,6 +8,10 @@ node_modules/
 *.keystore
 *.apk
 *.aab
+__pycache__/
+web-deploy.tar.gz
+.dev.vars
+.dev.vars.*
 dist/
 *.tsbuildinfo
 .DS_Store
