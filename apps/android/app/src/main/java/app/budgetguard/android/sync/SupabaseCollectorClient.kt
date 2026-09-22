@@ -15,6 +15,7 @@ import app.budgetguard.android.dashboard.InvoiceInbox
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
+import app.budgetguard.android.dashboard.categoryScopeForEntityKind
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.sms.AccountMessageCandidate
 import io.github.jan.supabase.SupabaseClient
@@ -48,6 +49,13 @@ data class AccountDiscoveryImportReport(
     val created: Int,
     val moved: Int,
     val reactivated: Int,
+)
+
+data class PlannedItemMoveTarget(
+    val entityId: String,
+    val entityName: String,
+    val periodId: String,
+    val startsOn: String,
 )
 
 class NotAuthenticatedException : Exception()
@@ -138,8 +146,12 @@ class SupabaseCollectorClient private constructor(
                 order("display_order", Order.ASCENDING)
             }
             .decodeList<AccountRow>()
+        val categoryScope = categoryScopeForEntityKind(entityRow.kind)
         val categories = client.from("categories")
-            .select { order("sort_order", Order.ASCENDING) }
+            .select {
+                filter { eq("category_scope", categoryScope) }
+                order("sort_order", Order.ASCENDING)
+            }
             .decodeList<CategoryRow>()
         val budgets = client.from("budget_progress")
             .select {
@@ -518,6 +530,40 @@ class SupabaseCollectorClient private constructor(
                 eq("direction", "expense")
             }
         }
+    }
+
+    suspend fun loadPlannedItemMoveTargets(): List<PlannedItemMoveTarget> {
+        authenticatedUserId()
+        val entities = client.from("entities")
+            .select {
+                filter { eq("is_active", true) }
+                order("display_order", Order.ASCENDING)
+            }
+            .decodeList<EntityRow>()
+        return entities.flatMap { entity ->
+            loadPeriods(entity.id).map { period ->
+                PlannedItemMoveTarget(
+                    entityId = entity.id,
+                    entityName = entity.name,
+                    periodId = period.id,
+                    startsOn = period.startsOn,
+                )
+            }
+        }.sortedWith(compareBy<PlannedItemMoveTarget> { it.entityName }.thenByDescending { it.startsOn })
+    }
+
+    suspend fun movePlannedItem(
+        itemId: String,
+        targetEntityId: String,
+        targetPeriodId: String,
+    ) {
+        authenticatedUserId()
+        val parameters = buildJsonObject {
+            put("p_planned_item_id", itemId)
+            put("p_target_entity_id", targetEntityId)
+            put("p_target_budget_period_id", targetPeriodId)
+        }
+        client.postgrest.rpc("move_planned_item", parameters)
     }
 
     suspend fun updateTransactionCategory(transactionId: String, categoryId: String?) {

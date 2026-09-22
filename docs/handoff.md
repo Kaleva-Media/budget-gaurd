@@ -1,11 +1,41 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-17. Source baseline: `436ae6f` (M2 safe-to-spend on `cursor/m2-safe-to-spend-36cf`).
+Updated: 2026-09-22. Source baseline: `3ae0d44` (`dev`) plus the planned-item move deployment candidate.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
 - **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
+
+## Planned-item moves and category scopes — 2026-09-22 source change
+
+The `codex/deploy-planned-item-moves` branch adds an Android move action for planned
+income and expenses. Users can choose any existing period across active entities.
+Same-entity moves keep account/category routing; cross-entity moves clear the old
+account and clear a category when it crosses between the personal and business
+taxonomies. Moves with recorded payment matches are refused so reconciled actuals
+cannot silently change month or entity. The database operation is atomic,
+authenticated, and ownership-scoped.
+
+Categories now have a `personal` or `business` scope. Existing categories remain
+personal, while fourteen business categories are added for existing and new users.
+Android selects the taxonomy from the active entity kind; the current web companion
+continues to use the default Personal entity and filters to personal categories.
+This is a source and forward-migration change only: it is not merged, deployed, or
+device-verified as of this note. It has been integrated on top of all current
+`dev` commits in `codex/deploy-planned-item-moves`. The move RPC locks the source
+row, remains `security invoker`, and is executable only by `authenticated`; the
+business-category trigger is also `security invoker`. The migration checker now
+permits only fixed trigger invocation and authenticated-only function grants while
+continuing to reject dynamic execution and privileged functions.
+
+The exact combined candidate passed 20 domain tests, TypeScript checks, configured
+and demo web builds, both headless browser modes, five email tests, Worker dry-run,
+four Deno tests, Android parser/app unit tests, debug APK assembly, 14 deployment
+policy/controller tests, and deployment-bundle packaging. A fresh disposable
+Supabase stack applied every migration; all 13 pgTAP files passed (55 tests),
+including move semantics and ownership isolation, and the local Supabase schema
+linter reported no errors. The disposable stack was removed.
 
 ## Deployment governance — 2026-09-17
 
@@ -34,9 +64,11 @@ The baseline evidence and dump checksum are protected in
 `/var/lib/budgetguard-deploy/baseline.json`; the private ledger is
 `deployment_control.migrations`.
 
-New workflows expand CI to web/domain, built-browser demo/auth checks, Android
-parser/app tests, email tests/checks/Worker dry run, Deno tests/checks, isolated
-database migration/pgTAP tests, and controller/migration-policy tests. Automated
+The guardrail workflows are present on `dev` and in the combined deployment
+candidate but remain inactive on `main` until the reviewed merge. They expand CI
+to web/domain, built-browser demo/auth checks, Android parser/app tests, email
+tests/checks/Worker dry run, Deno tests/checks, isolated database migration/pgTAP
+tests, and controller/migration-policy tests. Automated
 web/invoice-function deployment and approved code rollback are committed in the
 guardrails branch but are **not activated or end-to-end verified until its PR
 is independently reviewed and merged**. Retained schema is additive; database
@@ -85,7 +117,7 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 | Web companion | Overview, monthly plan, account lanes, activity and Quick Sort | TypeScript checks passed before initial push |
 | Payment initiation | None | Not implemented; never infer permission from an invoice |
 
-Android source build version: `0.5.1`, version code `12`. This does not prove which APK a user currently has installed.
+Android source build version: `0.5.2`, version code `13`. This does not prove which APK a user currently has installed.
 
 Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 

@@ -29,11 +29,25 @@ def digest(path):
 
 def validate_migration(sql):
     # Deliberately fail closed, including suspicious text in function bodies.
+    checked_sql = re.sub(
+        r"\bfor\s+each\s+row\s+execute\s+function\s+[a-z_][a-z0-9_.]*\s*\([^;]*?\)",
+        "",
+        sql,
+        flags=re.I,
+    )
+    checked_sql = re.sub(
+        r"\bgrant\s+execute\s+on\s+function\s+[a-z_][a-z0-9_.]*\s*\([^;]*?\)\s+to\s+authenticated\b",
+        "",
+        checked_sql,
+        flags=re.I,
+    )
+    if re.search(r"\bexecute\b", checked_sql, re.I):
+        raise ValueError("Migration rejected: dynamic or unscoped execution. Use a fixed trigger function or an authenticated-only function grant.")
     rules = {
         "destructive SQL": r"\b(drop|truncate)\b|\bdelete\s+from\b",
         "transaction escape": r"\b(commit|rollback|start\s+transaction)\b|\bbegin\s*;",
         "psql command": r"(?m)^\s*\\",
-        "privilege or OS escape": r"\b(copy|execute|security\s+definer|dblink|pg_read_file|pg_write_file|lo_export|lo_import|alter\s+system|(?:create|alter)\s+(?:role|user|database|extension|language)|set\s+(?:role|session)|reset\s+role)\b",
+        "privilege or OS escape": r"\b(copy|security\s+definer|dblink|pg_read_file|pg_write_file|lo_export|lo_import|alter\s+system|(?:create|alter)\s+(?:role|user|database|extension|language)|set\s+(?:role|session)|reset\s+role)\b",
         "deployment ledger access": r"\bdeployment_control\b",
         "weakened RLS": r"\bdisable\s+row\s+level\s+security\b|\bbypassrls\b",
         "contract replacement": r"\bcreate\s+or\s+replace\b|\balter\s+column\b|\brename\b",

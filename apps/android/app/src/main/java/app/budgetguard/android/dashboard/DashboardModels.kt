@@ -65,6 +65,9 @@ data class Entity(
     val displayOrder: Int,
 )
 
+fun categoryScopeForEntityKind(kind: String): String =
+    if (kind == "personal") "personal" else "business"
+
 data class BudgetPeriod(
     val id: String,
     val startsOn: String,

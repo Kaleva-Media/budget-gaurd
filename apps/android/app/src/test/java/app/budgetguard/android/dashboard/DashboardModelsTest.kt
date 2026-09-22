@@ -77,6 +77,13 @@ class DashboardModelsTest {
         assertEquals(10_000, summary.safeToSpendTodayCents)
     }
 
+    @Test
+    fun separatesPersonalAndBusinessExpenseCategories() {
+        assertEquals("personal", categoryScopeForEntityKind("personal"))
+        assertEquals("business", categoryScopeForEntityKind("company"))
+        assertEquals("business", categoryScopeForEntityKind("other"))
+    }
+
     private fun dashboard(
         selectedPeriod: BudgetPeriod = period,
         budgets: List<Budget> = emptyList(),

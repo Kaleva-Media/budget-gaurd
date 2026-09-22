@@ -50,6 +50,16 @@ class ControllerTests(unittest.TestCase):
     def test_additive_migration_allowed(self):
         validate_migration("alter table public.accounts add column label text; create index accounts_label_idx on public.accounts(label);")
 
+    def test_fixed_trigger_and_authenticated_function_grant_allowed(self):
+        validate_migration("""
+            create function public.safe_trigger() returns trigger language plpgsql security invoker
+            set search_path = '' as $$ begin return new; end $$;
+            create trigger safe_row after insert on public.profiles
+            for each row execute function public.safe_trigger();
+            revoke all on function public.safe_trigger() from public, anon, authenticated;
+            grant execute on function public.move_item(uuid) to authenticated;
+        """)
+
     def test_server_credentials_cannot_enter_public_bundle(self):
         def jwt(role):
             payload = base64.urlsafe_b64encode(json.dumps({"role": role}).encode()).rstrip(b"=")
@@ -60,7 +70,7 @@ class ControllerTests(unittest.TestCase):
                 scan_sensitive(data)
 
     def test_unsafe_migrations_rejected(self):
-        examples = ["drop table public.accounts;", "truncate public.accounts;", "delete from public.accounts;", "commit;", "select 1; COMMIT;", "set role supabase_admin;", "alter user postgres superuser;", "\\! id", "copy t to program 'id';", "alter table t disable row level security;", "create or replace function f() returns void;", "alter table t alter column c type int;", "alter table t add column c text not null;", "grant all on t to anon;", "select * from deployment_control.migrations;", "create index concurrently i on t(c);"]
+        examples = ["drop table public.accounts;", "truncate public.accounts;", "delete from public.accounts;", "commit;", "select 1; COMMIT;", "set role supabase_admin;", "alter user postgres superuser;", "\\! id", "copy t to program 'id';", "execute format('drop table %I', target);", "grant execute on function public.f() to anon;", "alter table t disable row level security;", "create or replace function f() returns void;", "alter table t alter column c type int;", "alter table t add column c text not null;", "grant all on t to anon;", "select * from deployment_control.migrations;", "create index concurrently i on t(c);"]
         for text in examples:
             with self.subTest(sql=text), self.assertRaises(ValueError):
                 validate_migration(text)
