@@ -1,6 +1,6 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-22. Production source baseline: `66ed569` (`main`).
+Updated: 2026-09-22. Production source baseline: `66ed569`; current `main` candidate: `9dc6ddf`.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
@@ -15,6 +15,14 @@ This document records repository state and historical observations, not a fresh 
   admin permission. The email invitation for `lerato@kalevamedia.com` is still
   pending because the current GitHub CLI token lacks the `admin:org` OAuth scope.
 - **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/Kaleva-Media/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
+
+## Search, expense ordering, and paid grouping — 2026-09-22 source change
+
+The `codex/search-paid-expenses` branch adds plan search across income and expenses on Android and web, orders expenses by name or highest amount, and separates To pay from Paid. An unpaid expense can be manually marked paid in one action; a manual confirmation can be undone, while an expense settled by matched transactions remains paid.
+
+Manual confirmation is stored in the owner-scoped `planned_item_payment_confirmations` table. It does not create a transaction or alter an account balance. The RLS insert policy accepts only an owned expense, and authenticated clients receive only select/insert/delete grants. Safe-to-spend and cash-flow calculations treat the confirmation as settlement without adding it to transaction-derived progress, preventing double-counting.
+
+Source verification passed 23 TypeScript domain tests, TypeScript checks, the production web build, a headless production-preview interaction covering search/order/paid/undo behavior, Android app unit tests and Kotlin compilation, deployment policy checks, all 14 pgTAP files (62 tests), local schema lint, and Supabase security/performance advisors with no issues. This feature migration and UI have not been deployed or device-verified as of this note.
 
 ## Planned-item moves and category scopes — 2026-09-22 source change
 

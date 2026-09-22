@@ -84,6 +84,26 @@ class DashboardModelsTest {
         assertEquals("business", categoryScopeForEntityKind("other"))
     }
 
+    @Test
+    fun searchesPlansAndGroupsPaidExpensesSeparately() {
+        val items = listOf(
+            PlannedItem("salary", "income", "income", "Salary", 500_000, 0, null, null, 25, 1),
+            PlannedItem("food", "expense", "variable_expense", "Food", 100_000, 40_000, null, null, null, 2),
+            PlannedItem("fuel", "expense", "variable_expense", "Fuel", 150_000, 0, null, null, null, 3, manuallyPaid = true),
+            PlannedItem("phone", "expense", "fixed_expense", "Phone", 180_000, 0, null, null, 20, 4),
+        )
+
+        val filtered = groupPlannedItems(items, "f", ExpenseOrder.AMOUNT)
+        val alphabetical = groupPlannedItems(items, "", ExpenseOrder.NAME)
+        val byAmount = groupPlannedItems(items, "", ExpenseOrder.AMOUNT)
+
+        assertEquals(emptyList<PlannedItem>(), filtered.income)
+        assertEquals(listOf("Food"), filtered.unpaidExpenses.map { it.name })
+        assertEquals(listOf("Fuel"), filtered.paidExpenses.map { it.name })
+        assertEquals(listOf("Food", "Phone"), alphabetical.unpaidExpenses.map { it.name })
+        assertEquals(listOf("Phone", "Food"), byAmount.unpaidExpenses.map { it.name })
+    }
+
     private fun dashboard(
         selectedPeriod: BudgetPeriod = period,
         budgets: List<Budget> = emptyList(),

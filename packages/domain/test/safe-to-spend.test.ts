@@ -97,6 +97,17 @@ describe("safe to spend (Home)", () => {
     expect(result.safeToSpendCents).toBe(350_000);
   });
 
+  test("manual paid confirmation removes expense from remaining commitments", () => {
+    const result = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [{ ...plannedExpense, manuallyPaid: true }],
+      transactions: [],
+    });
+
+    expect(result.rCents).toBe(0);
+    expect(result.safeToSpendCents).toBe(500_000);
+  });
+
   test("planned income does not affect STS", () => {
     const result = summariseSafeToSpend({
       accounts: [stsAccount],
