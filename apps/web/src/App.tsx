@@ -6,11 +6,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
-  budgetPercentage, formatZar, isUnplannedPayment, plannedItemStatus, summariseBudgets,
+  budgetPercentage, formatZar, groupPlannedItems, isUnplannedPayment, plannedItemStatus, summariseBudgets,
   summariseCashflow, type Account, type DashboardData, type PlannedItem,
-  type PlannedItemDirection, type Transaction,
+  type ExpenseOrder, type PlannedItemDirection, type Transaction,
 } from "@budget-guard/domain";
-import { createPlannedItem, loadDashboard, updateTransactionCategory } from "./lib/dashboard";
+import { createPlannedItem, loadDashboard, setPlannedExpensePaid, updateTransactionCategory } from "./lib/dashboard";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 
 type View = "overview" | "plan" | "transactions" | "accounts";
@@ -366,17 +366,41 @@ function AccountLane({ account, index }: { account: Account; index: number }) {
 function PlanView({ data, setData }: { data: DashboardData; setData: (data: DashboardData) => void }) {
   const [adding, setAdding] = useState<PlannedItemDirection | null>(null);
   const [saveError, setSaveError] = useState("");
+  const [query, setQuery] = useState("");
+  const [expenseOrder, setExpenseOrder] = useState<ExpenseOrder>("name");
+  const [paymentError, setPaymentError] = useState("");
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null);
   const summary = summariseCashflow(data.period, data.plannedItems);
-  const income = data.plannedItems.filter((item) => item.direction === "income");
-  const expenses = data.plannedItems.filter((item) => item.direction === "expense");
-  async function add(item: Omit<PlannedItem, "id" | "actualCents" | "sortOrder">) {
+  const groups = useMemo(
+    () => groupPlannedItems(data.plannedItems, query, expenseOrder),
+    [data.plannedItems, expenseOrder, query],
+  );
+  async function add(item: PlanDraft) {
     setSaveError("");
     try {
       const id = await createPlannedItem(data.period.id, item);
-      setData({ ...data, plannedItems: [...data.plannedItems, { ...item, id, actualCents: 0, sortOrder: data.plannedItems.length + 1 }] });
+      setData({ ...data, plannedItems: [...data.plannedItems, { ...item, id, actualCents: 0, manuallyPaid: false, sortOrder: data.plannedItems.length + 1 }] });
       setAdding(null);
     } catch (reason) {
       setSaveError(reason instanceof Error ? reason.message : "Could not add this plan item.");
+    }
+  }
+  async function changePaid(item: PlannedItem, paid: boolean) {
+    if (updatingPaymentId) return;
+    setPaymentError("");
+    setUpdatingPaymentId(item.id);
+    try {
+      await setPlannedExpensePaid(item.id, paid);
+      setData({
+        ...data,
+        plannedItems: data.plannedItems.map((candidate) => candidate.id === item.id
+          ? { ...candidate, manuallyPaid: paid }
+          : candidate),
+      });
+    } catch (reason) {
+      setPaymentError(reason instanceof Error ? reason.message : "Could not update this expense.");
+    } finally {
+      setUpdatingPaymentId(null);
     }
   }
   return (
@@ -386,9 +410,14 @@ function PlanView({ data, setData }: { data: DashboardData; setData: (data: Dash
         <div><span>Expenses planned</span><strong>{formatZar(summary.plannedExpenseCents)}</strong></div><i>=</i>
         <div className="surplus-cell"><span>Projected surplus</span><strong>{formatZar(summary.projectedSurplusCents)}</strong></div>
       </section>
+      <section className="plan-tools" aria-label="Plan filters">
+        <label className="search-box" htmlFor="plan-search"><Search size={17} /><input id="plan-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search income and expenses" /></label>
+        <label className="plan-order" htmlFor="expense-order"><span>Order expenses</span><select id="expense-order" value={expenseOrder} onChange={(event) => setExpenseOrder(event.target.value as ExpenseOrder)}><option value="name">Name A–Z</option><option value="amount">Amount high–low</option></select><ChevronDown size={15} /></label>
+      </section>
+      {paymentError && <p className="plan-payment-error" role="alert"><CircleAlert size={15} /> {paymentError}</p>}
       <section className="plan-ledger">
-        <PlanColumn title="Expected income" eyebrow="Money in" items={income} data={data} action={() => setAdding("income")} />
-        <PlanColumn title="Known expenses" eyebrow="Money out" items={expenses} data={data} action={() => setAdding("expense")} />
+        <PlanColumn title="Expected income" eyebrow="Money in" items={groups.income} data={data} action={() => setAdding("income")} emptyMessage={query ? "No income matches your search." : "Add the first amount you expect this month."} />
+        <ExpensePlanColumn groups={groups} data={data} action={() => setAdding("expense")} onPaidChange={changePaid} updatingPaymentId={updatingPaymentId} query={query} />
       </section>
       <section className="envelope-section">
         <div className="section-intro"><div><p className="eyebrow">Flexible spending</p><h2>Category guardrails</h2></div><p>Envelopes protect the parts of the month that can still move.</p></div>
@@ -413,33 +442,67 @@ function PlanView({ data, setData }: { data: DashboardData; setData: (data: Dash
   );
 }
 
-function PlanColumn({ title, eyebrow, items, data, action }: { title: string; eyebrow: string; items: PlannedItem[]; data: DashboardData; action: () => void }) {
+function PlanColumn({ title, eyebrow, items, data, action, emptyMessage }: { title: string; eyebrow: string; items: PlannedItem[]; data: DashboardData; action: () => void; emptyMessage: string }) {
   const total = items.reduce((sum, item) => sum + item.plannedCents, 0);
   return (
     <article className="panel plan-column">
       <div className="plan-column__head"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div><button className="add-button" onClick={action}><Plus size={16} /> Add</button></div>
       <div className="plan-column__labels"><span>Item</span><span>Account</span><span>Planned</span></div>
-      <div className="plan-column__rows">{items.map((item) => <PlanItemRow key={item.id} item={item} data={data} />)}{items.length === 0 && <div className="plan-empty">Add the first amount you expect this month.</div>}</div>
+      <div className="plan-column__rows">{items.map((item) => <PlanItemRow key={item.id} item={item} data={data} />)}{items.length === 0 && <div className="plan-empty">{emptyMessage}</div>}</div>
       <footer><span>Total</span><strong>{formatZar(total)}</strong></footer>
     </article>
   );
 }
 
-function PlanItemRow({ item, data }: { item: PlannedItem; data: DashboardData }) {
+function ExpensePlanColumn({ groups, data, action, onPaidChange, updatingPaymentId, query }: {
+  groups: ReturnType<typeof groupPlannedItems>;
+  data: DashboardData;
+  action: () => void;
+  onPaidChange: (item: PlannedItem, paid: boolean) => Promise<void>;
+  updatingPaymentId: string | null;
+  query: string;
+}) {
+  const allExpenses = [...groups.unpaidExpenses, ...groups.paidExpenses];
+  const total = allExpenses.reduce((sum, item) => sum + item.plannedCents, 0);
+  return (
+    <article className="panel plan-column plan-column--expenses">
+      <div className="plan-column__head"><div><p className="eyebrow">Money out</p><h2>Known expenses</h2></div><button className="add-button" onClick={action}><Plus size={16} /> Add</button></div>
+      <div className="plan-column__labels plan-column__labels--action"><span>Item</span><span>Account</span><span>Planned</span><span>Status</span></div>
+      <div className="expense-group">
+        <div className="expense-group__head"><span>To pay</span><strong>{groups.unpaidExpenses.length}</strong></div>
+        <div className="plan-column__rows">{groups.unpaidExpenses.map((item) => <PlanItemRow key={item.id} item={item} data={data} onPaidChange={onPaidChange} updating={updatingPaymentId === item.id} />)}{groups.unpaidExpenses.length === 0 && <div className="plan-empty plan-empty--compact">{query && groups.paidExpenses.length === 0 ? "No expenses match your search." : "Nothing left to pay."}</div>}</div>
+      </div>
+      <div className="expense-group expense-group--paid">
+        <div className="expense-group__head"><span>Paid</span><strong>{groups.paidExpenses.length}</strong></div>
+        <div className="plan-column__rows">{groups.paidExpenses.map((item) => <PlanItemRow key={item.id} item={item} data={data} onPaidChange={onPaidChange} updating={updatingPaymentId === item.id} />)}{groups.paidExpenses.length === 0 && <div className="plan-empty plan-empty--compact">Paid expenses will collect here.</div>}</div>
+      </div>
+      <footer><span>Visible total</span><strong>{formatZar(total)}</strong></footer>
+    </article>
+  );
+}
+
+function PlanItemRow({ item, data, onPaidChange, updating = false }: { item: PlannedItem; data: DashboardData; onPaidChange?: (item: PlannedItem, paid: boolean) => Promise<void>; updating?: boolean }) {
   const account = data.accounts.find((candidate) => candidate.id === item.accountId);
   const category = data.categories.find((candidate) => candidate.id === item.categoryId);
   const status = plannedItemStatus(item);
   const progress = item.plannedCents > 0 ? Math.min(100, Math.round((item.actualCents / item.plannedCents) * 100)) : 0;
   return (
-    <div className="plan-item">
+    <div className={`plan-item ${onPaidChange ? "plan-item--action" : ""}`}>
       <div className="plan-item__name"><span style={{ background: category?.colour ?? "#e8e7e0" }}>{status === "settled" ? <Check size={13} /> : item.name.slice(0, 1)}</span><div><strong>{item.name}</strong><small>{item.dueDay ? `Due day ${item.dueDay}` : "Flexible timing"} · {status}</small></div></div>
       <span className="plan-account">{account?.name ?? "Unassigned"}</span>
       <div className="plan-amount"><strong>{formatZar(item.plannedCents)}</strong><span><i style={{ width: `${progress}%` }} /></span></div>
+      {onPaidChange && (item.manuallyPaid
+        ? <button className="paid-action paid-action--undo" type="button" disabled={updating} onClick={() => void onPaidChange(item, false)}>{updating ? "Saving…" : "Undo paid"}</button>
+        : status === "settled"
+          ? <span className="paid-action paid-action--settled"><Check size={13} /> Paid</span>
+          : <button className="paid-action" type="button" disabled={updating} onClick={() => void onPaidChange(item, true)}>{updating ? "Saving…" : "Mark paid"}</button>)}
     </div>
   );
 }
 
-function PlanItemForm({ direction, data, onCancel, onSave, error }: { direction: PlannedItemDirection; data: DashboardData; onCancel: () => void; onSave: (item: Omit<PlannedItem, "id" | "actualCents" | "sortOrder">) => Promise<void>; error: string }) {
+type PlanDraft = Omit<PlannedItem, "id" | "actualCents" | "sortOrder" | "manuallyPaid">;
+
+function PlanItemForm({ direction, data, onCancel, onSave, error }: { direction: PlannedItemDirection; data: DashboardData; onCancel: () => void; onSave: (item: PlanDraft) => Promise<void>; error: string }) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState("");

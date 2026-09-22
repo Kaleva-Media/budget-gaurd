@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   budgetPercentage,
+  groupPlannedItems,
   isUnplannedPayment,
   plannedItemStatus,
   summariseBudgets,
@@ -80,5 +81,32 @@ describe("monthly cash-flow plan", () => {
     expect(plannedItemStatus(items[0]!)).toBe("settled");
     expect(plannedItemStatus(items[2]!)).toBe("partial");
     expect(plannedItemStatus({ ...items[2]!, actualCents: 0 })).toBe("expected");
+    expect(plannedItemStatus({ ...items[2]!, actualCents: 0, manuallyPaid: true })).toBe("settled");
+  });
+
+  test("searches both sides and groups paid expenses after the unpaid list", () => {
+    const grouped = groupPlannedItems(
+      [
+        ...items,
+        { ...items[2]!, id: "phone", name: "Phone", plannedCents: 180_000, actualCents: 0 },
+        { ...items[2]!, id: "fuel", name: "Fuel", plannedCents: 150_000, actualCents: 0, manuallyPaid: true },
+      ],
+      "f",
+      "amount",
+    );
+
+    expect(grouped.income).toEqual([]);
+    expect(grouped.unpaidExpenses.map((item) => item.name)).toEqual(["Food"]);
+    expect(grouped.paidExpenses.map((item) => item.name)).toEqual(["Fuel"]);
+  });
+
+  test("orders open expenses alphabetically or highest amount first", () => {
+    const open = [
+      { ...items[2]!, id: "phone", name: "Phone", plannedCents: 180_000, actualCents: 0 },
+      { ...items[2]!, id: "fuel", name: "Fuel", plannedCents: 150_000, actualCents: 0 },
+    ];
+
+    expect(groupPlannedItems(open, "", "name").unpaidExpenses.map((item) => item.name)).toEqual(["Fuel", "Phone"]);
+    expect(groupPlannedItems(open, "", "amount").unpaidExpenses.map((item) => item.name)).toEqual(["Phone", "Fuel"]);
   });
 });

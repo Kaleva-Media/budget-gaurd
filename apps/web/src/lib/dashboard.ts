@@ -69,6 +69,10 @@ interface PlannedItemRow {
   sort_order: number;
 }
 
+interface PaymentConfirmationRow {
+  planned_item_id: string;
+}
+
 export async function loadDashboard(): Promise<DashboardData> {
   if (!isSupabaseConfigured || !supabase) return demoDashboard;
 
@@ -107,7 +111,7 @@ export async function loadDashboard(): Promise<DashboardData> {
   }
 
   const period = periodResult.data as BudgetPeriodRow;
-  const [accountsResult, categoriesResult, budgetsResult, plannedItemsResult, transactionsResult] =
+  const [accountsResult, categoriesResult, budgetsResult, plannedItemsResult, paymentConfirmationsResult, transactionsResult] =
     await Promise.all([
       supabase
         .from("accounts")
@@ -132,6 +136,9 @@ export async function loadDashboard(): Promise<DashboardData> {
         .order("direction", { ascending: false })
         .order("sort_order"),
       supabase
+        .from("planned_item_payment_confirmations")
+        .select("planned_item_id"),
+      supabase
         .from("transactions")
         .select("id,account_id,category_id,occurred_on,occurred_at,amount_cents,status,kind,source,merchant,description,needs_review,planned_item_matches(planned_item_id)")
         .eq("entity_id", entityId)
@@ -146,6 +153,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     categoriesResult.error ??
     budgetsResult.error ??
     plannedItemsResult.error ??
+    paymentConfirmationsResult.error ??
     transactionsResult.error;
   if (error) throw error;
 
@@ -153,6 +161,9 @@ export async function loadDashboard(): Promise<DashboardData> {
   const categories = (categoriesResult.data ?? []) as CategoryRow[];
   const budgets = (budgetsResult.data ?? []) as BudgetRow[];
   const plannedItems = (plannedItemsResult.data ?? []) as PlannedItemRow[];
+  const manuallyPaidItemIds = new Set(
+    ((paymentConfirmationsResult.data ?? []) as PaymentConfirmationRow[]).map((row) => row.planned_item_id),
+  );
   const transactions = (transactionsResult.data ?? []) as TransactionRow[];
 
   return {
@@ -194,6 +205,7 @@ export async function loadDashboard(): Promise<DashboardData> {
       categoryId: row.category_id,
       dueDay: row.due_day,
       sortOrder: row.sort_order,
+      manuallyPaid: manuallyPaidItemIds.has(row.id),
     })),
     transactions: transactions.map((row) => ({
       id: row.id,
@@ -212,7 +224,7 @@ export async function loadDashboard(): Promise<DashboardData> {
   };
 }
 
-export type NewPlannedItem = Omit<PlannedItem, "id" | "actualCents" | "sortOrder">;
+export type NewPlannedItem = Omit<PlannedItem, "id" | "actualCents" | "sortOrder" | "manuallyPaid">;
 
 export async function createPlannedItem(
   periodId: string,
@@ -259,5 +271,28 @@ export async function updateTransactionCategory(
     .from("transactions")
     .update({ category_id: categoryId, needs_review: needsReview })
     .eq("id", transactionId);
+  if (error) throw error;
+}
+
+export async function setPlannedExpensePaid(plannedItemId: string, paid: boolean) {
+  if (!isSupabaseConfigured || !supabase) return;
+  const userResult = await supabase.auth.getUser();
+  if (userResult.error || !userResult.data.user) {
+    throw userResult.error ?? new Error("Sign in again to update this expense.");
+  }
+
+  const request = paid
+    ? supabase
+        .from("planned_item_payment_confirmations")
+        .upsert(
+          { user_id: userResult.data.user.id, planned_item_id: plannedItemId },
+          { onConflict: "planned_item_id", ignoreDuplicates: true },
+        )
+    : supabase
+        .from("planned_item_payment_confirmations")
+        .delete()
+        .eq("planned_item_id", plannedItemId)
+        .eq("user_id", userResult.data.user.id);
+  const { error } = await request;
   if (error) throw error;
 }

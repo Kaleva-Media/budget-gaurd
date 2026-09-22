@@ -120,6 +120,20 @@ class SafeToSpendTest {
     }
 
     @Test
+    fun `manual paid confirmation removes expense from remaining commitments`() {
+        val dashboard = dashboard(
+            accounts = listOf(stsAccount),
+            plannedItems = listOf(plannedExpense.copy(manuallyPaid = true)),
+            transactions = emptyList(),
+        )
+
+        val result = dashboard.summariseSafeToSpend()
+
+        assertEquals(0L, result.rCents)
+        assertEquals(500_000L, result.safeToSpendCents)
+    }
+
+    @Test
     fun `planned income does not affect STS`() {
         val dashboard = dashboard(
             accounts = listOf(stsAccount),

@@ -125,7 +125,43 @@ data class PlannedItem(
     val dueDay: Int?,
     val sortOrder: Int,
     val recurrence: String = "monthly",
+    val manuallyPaid: Boolean = false,
+) {
+    val isPaid: Boolean
+        get() = direction == "expense" && (manuallyPaid || actualCents >= plannedCents)
+}
+
+enum class ExpenseOrder { NAME, AMOUNT }
+
+data class PlannedItemGroups(
+    val income: List<PlannedItem>,
+    val unpaidExpenses: List<PlannedItem>,
+    val paidExpenses: List<PlannedItem>,
 )
+
+fun groupPlannedItems(
+    items: List<PlannedItem>,
+    query: String,
+    expenseOrder: ExpenseOrder,
+): PlannedItemGroups {
+    val needle = query.trim().lowercase(Locale.forLanguageTag("en-ZA"))
+    val visible = if (needle.isEmpty()) items else items.filter {
+        it.name.lowercase(Locale.forLanguageTag("en-ZA")).contains(needle)
+    }
+    val expenseComparator = when (expenseOrder) {
+        ExpenseOrder.NAME -> compareBy<PlannedItem> { it.name.lowercase(Locale.forLanguageTag("en-ZA")) }
+            .thenBy { it.sortOrder }
+        ExpenseOrder.AMOUNT -> compareByDescending<PlannedItem> { it.plannedCents }
+            .thenBy { it.name.lowercase(Locale.forLanguageTag("en-ZA")) }
+    }
+    val expenses = visible.filter { it.direction == "expense" }.sortedWith(expenseComparator)
+    return PlannedItemGroups(
+        income = visible.filter { it.direction == "income" }
+            .sortedWith(compareBy<PlannedItem> { it.sortOrder }.thenBy { it.name }),
+        unpaidExpenses = expenses.filterNot { it.isPaid },
+        paidExpenses = expenses.filter { it.isPaid },
+    )
+}
 
 data class Transaction(
     val id: String,
@@ -241,7 +277,11 @@ fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
     val rCents = plannedItems
         .filter { it.direction == "expense" }
         .sumOf { item ->
-            val matched = matchedCentsByItem.getOrDefault(item.id, 0L)
+            val matched = if (item.manuallyPaid) {
+                item.plannedCents
+            } else {
+                maxOf(item.actualCents, matchedCentsByItem.getOrDefault(item.id, 0L))
+            }
             val remaining = maxOf(0L, item.plannedCents - matched)
             remaining
         }

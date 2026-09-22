@@ -67,6 +67,8 @@ Planned items can point to the account responsible for receiving or paying them.
 
 `planned_item_matches` links one or more normalized transactions to a planned item. Progress is derived in the `planned_item_progress` security-invoker view, so partial payments and split transactions do not require a mutable status that can drift out of sync.
 
+`planned_item_payment_confirmations` records an owner's explicit “mark paid” action for an expense. It is a reversible bookkeeping confirmation, not a transaction, account-balance change, or payment instruction. Only owned expense items can be confirmed. A confirmed item is treated as settled in plan grouping and remaining-commitment calculations, while matched transaction progress remains authoritative evidence of actual movement. Calculations use the greater of the confirmed planned amount and transaction-derived progress, so the two signals cannot double-count an expense. If transaction matches already settle an item, removing a manual confirmation does not make it unpaid.
+
 Projected surplus is:
 
 `carryover + planned income - planned expenses`
