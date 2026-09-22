@@ -1,11 +1,20 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-22. Source baseline: `3ae0d44` (`dev`) plus the planned-item move deployment candidate.
+Updated: 2026-09-22. Production source baseline: `66ed569` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/edward-kalevamedia/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
+- **2026-09-22 production deployment**: `66ed569` is live. Deployment run
+  `35710368498` completed successfully after a restore-tested database backup,
+  applied `20260922043832_planned_item_moves_and_category_scopes.sql`, activated
+  the matching web/function release, and passed the controller smoke checks.
+- **2026-09-22 repository transfer**: repository ID `1373688513` moved to
+  `Kaleva-Media/budget-gaurd`. Main protection, deployment environments, secrets,
+  and Actions variables were preserved. The `BudgetGuard Admins` team has repo
+  admin permission. The email invitation for `lerato@kalevamedia.com` is still
+  pending because the current GitHub CLI token lacks the `admin:org` OAuth scope.
+- **D-017 (2026-09-17)**: SHA-pinned all GitHub Actions in `.github/workflows/ci.yml` to satisfy repository policy requiring full commit hashes. PR [#5](https://github.com/Kaleva-Media/budget-gaurd/pull/5) merged to `dev` at `e17a7f2`.
 
 ## Planned-item moves and category scopes — 2026-09-22 source change
 
@@ -21,9 +30,9 @@ Categories now have a `personal` or `business` scope. Existing categories remain
 personal, while fourteen business categories are added for existing and new users.
 Android selects the taxonomy from the active entity kind; the current web companion
 continues to use the default Personal entity and filters to personal categories.
-This is a source and forward-migration change only: it is not merged, deployed, or
-device-verified as of this note. It has been integrated on top of all current
-`dev` commits in `codex/deploy-planned-item-moves`. The move RPC locks the source
+This change is merged and deployed to the web/function/database production stack
+at `66ed569`. The Android source and debug build are verified locally, but the new
+APK has not been installed or device-verified. The move RPC locks the source
 row, remains `security invoker`, and is executable only by `authenticated`; the
 business-category trigger is also `security invoker`. The migration checker now
 permits only fixed trigger invocation and authenticated-only function grants while
@@ -39,8 +48,8 @@ linter reported no errors. The disposable stack was removed.
 
 ## Deployment governance — 2026-09-17
 
-Read `docs/deployment-policy.md` before production work. Guardrails are being
-delivered through `chore/deployment-guardrails`, not a direct push to `main`.
+Read `docs/deployment-policy.md` before production work. The guardrails are active
+on `main`.
 
 Live GitHub controls: protected main requires strict/up-to-date `all-tests`
 bound to GitHub Actions, one independent approving review, stale-review
@@ -64,23 +73,18 @@ The baseline evidence and dump checksum are protected in
 `/var/lib/budgetguard-deploy/baseline.json`; the private ledger is
 `deployment_control.migrations`.
 
-The guardrail workflows are present on `dev` and in the combined deployment
-candidate but remain inactive on `main` until the reviewed merge. They expand CI
+The guardrail workflows are active on `main`. They expand CI
 to web/domain, built-browser demo/auth checks, Android parser/app tests, email
 tests/checks/Worker dry run, Deno tests/checks, isolated database migration/pgTAP
-tests, and controller/migration-policy tests. Automated
-web/invoice-function deployment and approved code rollback are committed in the
-guardrails branch but are **not activated or end-to-end verified until its PR
-is independently reviewed and merged**. Retained schema is additive; database
+tests, and controller/migration-policy tests. Automated web/invoice-function
+deployment and approved code rollback are active. Retained schema is additive; database
 restore is separate owner-authorized recovery. Same-host dumps do not protect
 Storage file bytes or provide off-host disaster recovery.
 
-Remaining governance setup: both desktop GitHub connections authenticate as
-the owner and cannot independently approve an owner-authored PR. Provision a
-non-admin agent author or another independent collaborator; do not bypass review.
-Sole-owner CODEOWNERS can also block owner-authored future PRs. Removing mandatory
-owner-only approval was rejected by the safety review as an unauthorized control
-weakening; it remains enabled. Owner authorization is required to change it.
+Remaining governance setup: accept Lerato's organization/team invitation after it
+is successfully sent. Until then, both desktop GitHub connections authenticate as
+the owner and cannot independently approve an owner-authored PR. Main still requires
+independent review; any temporary exception must be explicitly authorized and restored.
 Cloudflare email-Worker automated publishing still needs a scoped credential;
 its CI dry run is not a live deployment or proof of invoice delivery.
 
@@ -93,12 +97,13 @@ corrected to platform-tools. A redundant local reset hit a 502 during restart;
 CI now checks a fresh inbound-firewalled stack directly instead. Every suite and
 the aggregate `all-tests` passed on application/controller commit `d4c9508`,
 including migration-chain and cross-user/cross-entity/private-PDF denial tests.
-Evidence: [push CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160606331)
-and [PR CI](https://github.com/edward-kalevamedia/budget-gaurd/actions/runs/35160609889).
+Evidence: [push CI](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35160606331)
+and [PR CI](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35160609889).
 Any subsequent documentation-only commit must also pass the full latest-commit
-gate; see [PR #1](https://github.com/edward-kalevamedia/budget-gaurd/pull/1) for that
-current status. No merge/deployment bypass was used. Production public auth
-health passed and anonymous bank-account API access was denied.
+gate; see [PR #1](https://github.com/Kaleva-Media/budget-gaurd/pull/1) for that
+historical status. The owner-authorized temporary review exception used for the
+2026-09-22 merge was restored immediately afterward. Production public auth health
+passed and anonymous bank-account API access was denied.
 
 ## What the user wants
 
@@ -178,7 +183,9 @@ Configuration sources (values are not committed):
 - Function: runtime `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and matching `INVOICE_INGRESS_PUBLIC_JWK`. Self-hosted runtime/mount configuration must be inspected on the server; it is not fully reproduced in this repo.
 - Server: protected Supabase `.env` in the stack directory. Obtain only the settings needed for a task and never print or copy its complete contents into logs or Git.
 
-Git access note: the machine's SSH identity authenticated as `edward-digify` and was denied write access to this repository. The initial push succeeded using the existing GitHub CLI account `edward-kalevamedia` over HTTPS. `origin` retains the supplied SSH fetch URL and has an HTTPS push URL. Verify authentication on another machine rather than assuming this arrangement exists there.
+Git access note: the repository is organization-owned at `Kaleva-Media/budget-gaurd`.
+The current GitHub CLI account is `edward-kalevamedia`; verify authentication and
+organization scopes on another machine rather than assuming this arrangement exists there.
 
 ## Operational checklist
 

@@ -5,7 +5,7 @@
 **Reviewers:** Gugu (charter fit); Vera (testability)  
 **Audience:** Neo (Android), Ada (backend/invoice), Vera (QA)  
 **Horizon:** Next 30 days — thinnest trustworthy mobile experience  
-**Repo:** https://github.com/edward-kalevamedia/budget-gaurd  
+**Repo:** https://github.com/Kaleva-Media/budget-gaurd
 **Date:** 2026-09-17  
 **Status:** Charter-approved (Gugu) + **Vera testability Pass** (2026-09-17) — engineering bar locked; Neo/Ada executing M1–M6
 

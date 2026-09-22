@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from policy import scan_sensitive, validate_migration
 
-REPO = "edward-kalevamedia/budget-gaurd"
+REPO = "Kaleva-Media/budget-gaurd"
 DB = "budget-guard-db"
 FUNCTIONS = "budget-guard-edge-functions"
 STACK = Path("/home/ubuntu/Databases/supabase-fix/projects/budget-guard")

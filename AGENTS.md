@@ -9,7 +9,7 @@
    Also read `docs/deployment-policy.md`; its merge, backup, migration and recovery rules are mandatory.
 5. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
-Repository: `https://github.com/edward-kalevamedia/budget-gaurd` (spelling is intentional).
+Repository: `https://github.com/Kaleva-Media/budget-gaurd` (spelling is intentional).
 Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit and one independent approving reviewer; a new push requires a fresh approval.
 
 ## Product intent
