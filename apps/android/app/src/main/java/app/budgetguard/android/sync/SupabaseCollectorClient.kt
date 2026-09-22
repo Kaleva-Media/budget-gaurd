@@ -167,6 +167,12 @@ class SupabaseCollectorClient private constructor(
                 order("sort_order", Order.ASCENDING)
             }
             .decodeList<PlannedItemRow>()
+        val paymentConfirmations = client.from("planned_item_payment_confirmations")
+            .select {
+                filter { eq("user_id", userId) }
+            }
+            .decodeList<PaymentConfirmationRow>()
+        val manuallyPaidItemIds = paymentConfirmations.mapTo(mutableSetOf()) { it.plannedItemId }
         val transactions = client.from("transactions")
             .select {
                 filter {
@@ -246,6 +252,7 @@ class SupabaseCollectorClient private constructor(
                     dueDay = row.dueDay,
                     sortOrder = row.sortOrder,
                     recurrence = row.recurrence,
+                    manuallyPaid = row.id in manuallyPaidItemIds,
                 )
             },
             transactions = transactions.map { row ->
@@ -528,6 +535,25 @@ class SupabaseCollectorClient private constructor(
                 eq("id", itemId)
                 eq("budget_period_id", periodId)
                 eq("direction", "expense")
+            }
+        }
+    }
+
+    suspend fun setPlannedExpensePaid(itemId: String, paid: Boolean) {
+        val userId = authenticatedUserId()
+        if (paid) {
+            client.from("planned_item_payment_confirmations").upsert(
+                NewPaymentConfirmation(userId = userId, plannedItemId = itemId),
+            ) {
+                onConflict = "planned_item_id"
+                ignoreDuplicates = true
+            }
+        } else {
+            client.from("planned_item_payment_confirmations").delete {
+                filter {
+                    eq("planned_item_id", itemId)
+                    eq("user_id", userId)
+                }
             }
         }
     }
@@ -1032,6 +1058,17 @@ private data class TransactionRow(
 @Serializable
 private data class MatchRow(
     @SerialName("transaction_id") val transactionId: String,
+    @SerialName("planned_item_id") val plannedItemId: String,
+)
+
+@Serializable
+private data class PaymentConfirmationRow(
+    @SerialName("planned_item_id") val plannedItemId: String,
+)
+
+@Serializable
+private data class NewPaymentConfirmation(
+    @SerialName("user_id") val userId: String,
     @SerialName("planned_item_id") val plannedItemId: String,
 )
 

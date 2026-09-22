@@ -12,13 +12,16 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -43,6 +46,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.budgetguard.android.dashboard.Account
 import app.budgetguard.android.dashboard.Budget
 import app.budgetguard.android.dashboard.Entity
+import app.budgetguard.android.dashboard.ExpenseOrder
 import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
@@ -52,6 +56,7 @@ import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
+import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.summariseSafeToSpend
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
@@ -85,6 +90,8 @@ class MainActivity : ComponentActivity() {
     private var collectorHealthText: TextView? = null
     private var permissionAction: TextView? = null
     private var pendingAccountScan: Pair<String, String>? = null
+    private var planSearchQuery = ""
+    private var expenseOrder = ExpenseOrder.NAME
 
     private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         updateCollectorWidgets()
@@ -463,27 +470,83 @@ class MainActivity : ComponentActivity() {
         val plan = card(Palette.canvas, radius = 22, padding = 18)
         plan.addView(moneyLine("Carried forward", formatZar(data.period.carryoverCents), Palette.moss))
         plan.addView(divider().withVerticalMargin(12))
-        val incomeItems = data.plannedItems.filter { it.direction == "income" }
-        plan.addView(planGroupHeading("MONEY IN", cashflow.plannedIncomeCents, Palette.moss))
-        if (incomeItems.isEmpty()) {
-            plan.addView(label("No income planned yet.", 12f, Palette.muted).withTopMargin(9))
-        } else {
-            incomeItems.forEachIndexed { index, item ->
-                plan.addView(plannedIncomeRow(data, item).withTopMargin(if (index == 0) 10 else 0))
-                if (index < incomeItems.lastIndex) plan.addView(divider().withVerticalMargin(10))
-            }
+        val search = input("Search income and expenses").apply { setText(planSearchQuery) }
+        val orderOptions = listOf("Name A–Z", "Amount high–low")
+        val order = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, orderOptions)
+            setSelection(if (expenseOrder == ExpenseOrder.NAME) 0 else 1)
+            background = rounded(Palette.paper, 16, Palette.line)
+            setPadding(dp(10), 0, dp(10), 0)
+            minimumHeight = dp(48)
+            contentDescription = "Order expenses"
         }
-        plan.addView(divider().withVerticalMargin(12))
-        val expenseItems = data.plannedItems.filter { it.direction == "expense" }
-        plan.addView(planGroupHeading("MONEY OUT", cashflow.plannedExpenseCents, Palette.coral))
-        if (expenseItems.isEmpty()) {
-            plan.addView(label("No expenses planned yet.", 12f, Palette.muted).withTopMargin(9))
-        } else {
-            expenseItems.forEachIndexed { index, item ->
-                plan.addView(plannedExpenseRow(data, item).withTopMargin(if (index == 0) 10 else 0))
-                if (index < expenseItems.lastIndex) plan.addView(divider().withVerticalMargin(10))
+        plan.addView(search)
+        plan.addView(vertical().apply {
+            addView(label("ORDER EXPENSES", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f })
+            addView(order.withTopMargin(5))
+        }.withTopMargin(10))
+
+        val planResults = vertical()
+        plan.addView(planResults.withTopMargin(15))
+
+        fun renderPlanResults() {
+            planResults.removeAllViews()
+            val groups = groupPlannedItems(data.plannedItems, planSearchQuery, expenseOrder)
+            planResults.addView(planGroupHeading("MONEY IN", groups.income.sumOf { it.plannedCents }, Palette.moss))
+            if (groups.income.isEmpty()) {
+                planResults.addView(label(if (planSearchQuery.isBlank()) "No income planned yet." else "No income matches your search.", 12f, Palette.muted).withTopMargin(9))
+            } else {
+                groups.income.forEachIndexed { index, item ->
+                    planResults.addView(plannedIncomeRow(data, item).withTopMargin(if (index == 0) 10 else 0))
+                    if (index < groups.income.lastIndex) planResults.addView(divider().withVerticalMargin(10))
+                }
             }
+
+            planResults.addView(divider().withVerticalMargin(14))
+            planResults.addView(planGroupHeading("TO PAY", groups.unpaidExpenses.sumOf { it.plannedCents }, Palette.coral))
+            if (groups.unpaidExpenses.isEmpty()) {
+                val message = if (planSearchQuery.isNotBlank() && groups.paidExpenses.isEmpty()) "No expenses match your search." else "Nothing left to pay."
+                planResults.addView(label(message, 12f, Palette.muted).withTopMargin(9))
+            } else {
+                groups.unpaidExpenses.forEachIndexed { index, item ->
+                    planResults.addView(plannedExpenseRow(data, item).withTopMargin(if (index == 0) 10 else 0))
+                    if (index < groups.unpaidExpenses.lastIndex) planResults.addView(divider().withVerticalMargin(10))
+                }
+            }
+
+            planResults.addView(divider().withVerticalMargin(14))
+            planResults.addView(card(Palette.sage, radius = 16, padding = 12).apply {
+                addView(planGroupHeading("PAID", groups.paidExpenses.sumOf { it.plannedCents }, Palette.moss))
+                if (groups.paidExpenses.isEmpty()) {
+                    addView(label("Paid expenses will collect here.", 12f, Palette.muted).withTopMargin(9))
+                } else {
+                    groups.paidExpenses.forEachIndexed { index, item ->
+                        addView(plannedExpenseRow(data, item).withTopMargin(if (index == 0) 10 else 0))
+                        if (index < groups.paidExpenses.lastIndex) addView(divider().withVerticalMargin(10))
+                    }
+                }
+            })
         }
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                planSearchQuery = value?.toString().orEmpty()
+                renderPlanResults()
+            }
+            override fun afterTextChanged(value: Editable?) = Unit
+        })
+        order.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val next = if (position == 0) ExpenseOrder.NAME else ExpenseOrder.AMOUNT
+                if (expenseOrder != next) {
+                    expenseOrder = next
+                    renderPlanResults()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        renderPlanResults()
         val planActions = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
         planActions.addView(action("+  Income", primary = false).apply {
             setOnClickListener { showIncomeEditor(data, null) }
@@ -1310,7 +1373,23 @@ class MainActivity : ComponentActivity() {
         val amount = vertical().apply {
             gravity = Gravity.END
             addView(label(formatZar(item.plannedCents), 15f, Palette.ink, bold = true).apply { gravity = Gravity.END })
-            addView(label("Edit", 11f, Palette.moss, bold = true).apply { gravity = Gravity.END }.withTopMargin(3))
+            val paymentControl = when {
+                item.manuallyPaid -> action("Undo paid", primary = false, compact = true).apply {
+                    contentDescription = "Mark ${item.name} as unpaid"
+                    setOnClickListener { setPlannedExpensePaid(item, false, this) }
+                }
+                item.isPaid -> label("✓  Paid", 11f, Palette.moss, bold = true).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(9), dp(6), dp(9), dp(6))
+                    background = rounded(Palette.sage, 13)
+                }
+                else -> action("Mark paid", primary = false, compact = true).apply {
+                    contentDescription = "Mark ${item.name} as paid"
+                    setOnClickListener { setPlannedExpensePaid(item, true, this) }
+                }
+            }
+            addView(paymentControl.withTopMargin(5))
+            addView(label("Edit details", 10f, Palette.moss, bold = true).apply { gravity = Gravity.END }.withTopMargin(4))
         }
         addView(amount)
         setPadding(0, dp(4), 0, dp(4))
@@ -1318,6 +1397,22 @@ class MainActivity : ComponentActivity() {
         isFocusable = true
         contentDescription = "Edit ${item.name} expense"
         setOnClickListener { showExpenseEditor(data, item) }
+    }
+
+    private fun setPlannedExpensePaid(item: PlannedItem, paid: Boolean, control: View) {
+        control.isEnabled = false
+        lifecycleScope.launch {
+            runCatching { applicationState.collectorClient?.setPlannedExpensePaid(item.id, paid) }
+                .onSuccess { loadDashboard(keepContentVisible = true) }
+                .onFailure {
+                    control.isEnabled = true
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (paid) "Couldn't mark this expense as paid." else "Couldn't undo the paid status.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
     }
 
     private fun showExpenseEditor(data: MobileDashboard, item: PlannedItem?) {

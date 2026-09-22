@@ -95,6 +95,15 @@ export interface PlannedItem {
   categoryId: string | null;
   dueDay: number | null;
   sortOrder: number;
+  manuallyPaid?: boolean;
+}
+
+export type ExpenseOrder = "name" | "amount";
+
+export interface PlannedItemGroups {
+  income: PlannedItem[];
+  unpaidExpenses: PlannedItem[];
+  paidExpenses: PlannedItem[];
 }
 
 export interface DashboardData {
@@ -126,7 +135,10 @@ export function summariseCashflow(
   const plannedIncomeCents = income.reduce((sum, item) => sum + item.plannedCents, 0);
   const plannedExpenseCents = expenses.reduce((sum, item) => sum + item.plannedCents, 0);
   const actualIncomeCents = income.reduce((sum, item) => sum + item.actualCents, 0);
-  const actualExpenseCents = expenses.reduce((sum, item) => sum + item.actualCents, 0);
+  const actualExpenseCents = expenses.reduce(
+    (sum, item) => sum + (item.manuallyPaid ? Math.max(item.actualCents, item.plannedCents) : item.actualCents),
+    0,
+  );
   const availableCents = period.carryoverCents + plannedIncomeCents;
 
   return {
@@ -143,9 +155,34 @@ export function summariseCashflow(
 }
 
 export function plannedItemStatus(item: PlannedItem): "expected" | "partial" | "settled" {
+  if (item.manuallyPaid) return "settled";
   if (item.actualCents >= item.plannedCents) return "settled";
   if (item.actualCents > 0) return "partial";
   return "expected";
+}
+
+export function groupPlannedItems(
+  items: PlannedItem[],
+  query: string,
+  expenseOrder: ExpenseOrder,
+): PlannedItemGroups {
+  const needle = query.trim().toLocaleLowerCase("en-ZA");
+  const visible = needle
+    ? items.filter((item) => item.name.toLocaleLowerCase("en-ZA").includes(needle))
+    : [...items];
+  const byPlanOrder = (left: PlannedItem, right: PlannedItem) =>
+    left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "en-ZA");
+  const byExpenseOrder = expenseOrder === "amount"
+    ? (left: PlannedItem, right: PlannedItem) =>
+        right.plannedCents - left.plannedCents || left.name.localeCompare(right.name, "en-ZA")
+    : (left: PlannedItem, right: PlannedItem) => left.name.localeCompare(right.name, "en-ZA");
+  const expenses = visible.filter((item) => item.direction === "expense").sort(byExpenseOrder);
+
+  return {
+    income: visible.filter((item) => item.direction === "income").sort(byPlanOrder),
+    unpaidExpenses: expenses.filter((item) => plannedItemStatus(item) !== "settled"),
+    paidExpenses: expenses.filter((item) => plannedItemStatus(item) === "settled"),
+  };
 }
 
 export interface BudgetSummary {
@@ -238,7 +275,9 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
   const rCents = plannedItems
     .filter((item) => item.direction === "expense")
     .reduce((sum, item) => {
-      const matched = matchedCentsByItem.get(item.id) ?? 0;
+      const matched = item.manuallyPaid
+        ? item.plannedCents
+        : Math.max(item.actualCents, matchedCentsByItem.get(item.id) ?? 0);
       const remaining = Math.max(0, item.plannedCents - matched);
       return sum + remaining;
     }, 0);
