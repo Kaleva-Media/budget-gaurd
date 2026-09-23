@@ -1,11 +1,11 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-23. Production source baseline: `075eb45` (`main`).
+Updated: 2026-09-23. Production source baseline: `167a29f` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-09-23 debt management (source only)**: Android now has a separate
+- **2026-09-23 debt management deployment**: Android now has a separate
   Debt freedom destination with owner/entity-scoped debt onboarding, balances,
   APRs, minimums, optional remaining terms and due days, secured/arrears flags,
   strategy preferences, payoff ordering, and estimates. The pure Kotlin and
@@ -23,10 +23,20 @@ This document records repository state and historical observations, not a fresh 
   lint with no errors, 14 deployment-controller tests, and deployment policy.
   The debug APK is `BudgetGuard-0.5.4-debt-freedom-debug.apk` with SHA-256
   `d344773b63970f3ad9fb2b33e95ea7d180e5f68b188eb9e07dfdaf5b9955f995`.
-  Source changes and migration are not yet merged or deployed; `adb` was not
-  available locally, so installed-device behaviour is unverified.
+  PR [#21](https://github.com/Kaleva-Media/budget-gaurd/pull/21) merged as
+  `167a29f`. Main CI run
+  [35822243324](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35822243324)
+  passed every suite and the required `all-tests` gate. Production deployment
+  run [35822415910](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35822415910)
+  restore-tested its backup, applied the one pending migration, activated the
+  exact tested revision, and passed controller smoke checks. The public version
+  endpoint reports `167a29f`; unauthenticated REST reads of both new tables
+  return `401`. The owner-authorized temporary review-count exception was
+  restored immediately after merge; main again requires one independent review,
+  including code-owner and last-push approval. `adb` was not available locally,
+  so installed-device behaviour remains unverified.
 
-- **2026-09-22 native flexible-budget setup (source only)**: Android users can
+- **2026-09-22 native flexible-budget setup (deployed 2026-09-23)**: Android users can
   now add, edit, change, and remove monthly category limits for the selected
   entity and period. The dashboard shows total flexible money remaining, a
   daily pace, pending spend, each category's used/remaining position, and an
@@ -38,16 +48,17 @@ This document records repository state and historical observations, not a fresh 
   verification passed Android parser/app unit tests, Android lint, debug APK
   assembly, all 23 TypeScript domain tests, TypeScript checks, and all 14 local
   pgTAP files (69 tests), including create/read/update/delete and cross-owner
-  denial for category limits. This branch is not yet merged, deployed, or
-  installed-device verified.
-- **2026-09-22 planned daily allowance clarification (source only)**: Android now
+  denial for category limits. The source is merged in `167a29f`; the Android APK
+  is built but not installed-device verified.
+- **2026-09-22 planned daily allowance clarification (deployed 2026-09-23)**: Android now
   shows a future period's projected plan surplus divided by that month's day count
   as the planned daily allowance, instead of relabelling the current account-backed
   Safe-to-spend total. Negative forecasts are labelled as daily shortfalls. Current
   periods retain account-backed Safe to spend, while past periods show their plan
   result rather than today's account balances. Android unit tests, debug compilation,
   APK assembly, all 23 TypeScript domain tests, and TypeScript checks pass. This
-  source change is not yet merged, deployed, or installed-device verified.
+  source is merged in `167a29f`; the Android APK is built but not
+  installed-device verified.
 - **2026-09-22 search/paid deployment**: `7e26a20` is live. Deployment run
   `35749146989` completed successfully after a restore-tested database backup,
   applied one pending migration (`20260922122818_planned_item_payment_confirmations.sql`),
