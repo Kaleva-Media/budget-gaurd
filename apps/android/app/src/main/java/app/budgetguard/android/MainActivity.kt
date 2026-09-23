@@ -45,6 +45,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.budgetguard.android.dashboard.Account
 import app.budgetguard.android.dashboard.Budget
+import app.budgetguard.android.dashboard.Debt
+import app.budgetguard.android.dashboard.DebtStrategy
 import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.ExpenseOrder
 import app.budgetguard.android.dashboard.HomeHeroMode
@@ -55,6 +57,8 @@ import app.budgetguard.android.dashboard.Transaction
 import app.budgetguard.android.dashboard.availableBudgetCategories
 import app.budgetguard.android.dashboard.budgetSummary
 import app.budgetguard.android.dashboard.cashflowSummary
+import app.budgetguard.android.dashboard.debtPlan
+import app.budgetguard.android.dashboard.debtTypeLabel
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
@@ -75,7 +79,7 @@ import java.time.YearMonth
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
-    private enum class Screen { HOME, TRANSACTIONS, INVOICES, ACCOUNTS, PROFILE }
+    private enum class Screen { HOME, DEBT, TRANSACTIONS, INVOICES, ACCOUNTS, PROFILE }
     private enum class AuthMode { SIGN_IN, SIGN_UP }
 
     private val applicationState by lazy { application as BudgetGuardApplication }
@@ -396,6 +400,7 @@ class MainActivity : ComponentActivity() {
             isFillViewport = true
             addView(when (selectedScreen) {
                 Screen.HOME -> buildHome(data)
+                Screen.DEBT -> buildDebtFreedom(data)
                 Screen.TRANSACTIONS -> buildTransactions(data)
                 Screen.INVOICES -> buildInvoices(data)
                 Screen.ACCOUNTS -> buildAccounts(data)
@@ -645,6 +650,366 @@ class MainActivity : ComponentActivity() {
         }
 
         return content
+    }
+
+    private fun buildDebtFreedom(data: MobileDashboard): View {
+        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
+        content.addView(buildHeader("Debt freedom"))
+        content.addView(label("A clear route out of debt.", 30f, Palette.ink, bold = true).withTopMargin(22))
+        content.addView(label(
+            "Add every balance and minimum payment. BudgetGuard uses this entity's current income, expenses, and flexible budgets to estimate a repayment path.",
+            14f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
+
+        if (data.debts.isEmpty()) {
+            val start = card(Palette.sage, radius = 24, padding = 20)
+            start.addView(label("Start with one honest number", 20f, Palette.ink, bold = true))
+            start.addView(label(
+                "Add credit cards, loans, overdrafts, store accounts, tax debt, or medical debt. Your records stay private to ${data.entity.name}.",
+                13f,
+                Palette.inkSoft,
+            ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
+            start.addView(action("Add my first debt", primary = true).apply {
+                setOnClickListener { showDebtEditor(data, null) }
+            }.withTopMargin(16))
+            content.addView(start.withTopMargin(22))
+
+            val methods = card(Palette.canvas, radius = 22, padding = 18)
+            methods.addView(label("Five possible routes", 17f, Palette.ink, bold = true))
+            methods.addView(label(
+                "Avalanche · Snowball · Hybrid · Consolidation review · Registered debt counselling or a debt management plan",
+                13f,
+                Palette.muted,
+            ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
+            content.addView(methods.withTopMargin(12))
+            return content
+        }
+
+        val plan = data.debtPlan() ?: return content
+        val summary = card(Palette.ink, radius = 26, padding = 20)
+        summary.addView(label("TOTAL DEBT", 10f, Palette.mint, bold = true).apply { letterSpacing = 0.09f })
+        summary.addView(label(formatZar(plan.totalBalanceCents), 34f, Color.WHITE, bold = true).withTopMargin(7))
+        summary.addView(label(
+            "${formatZar(plan.minimumPaymentsCents)} minimums · ${formatZar(plan.availableForDebtCents)} estimated monthly capacity",
+            12f,
+            Palette.inkMuted,
+        ).withTopMargin(8))
+        content.addView(summary.withTopMargin(20))
+
+        val strategyColour = if (plan.strategy == DebtStrategy.FORMAL_SUPPORT) Palette.peach else Palette.sage
+        val strategy = card(strategyColour, radius = 22, padding = 18)
+        strategy.addView(label("RECOMMENDED ROUTE", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+        strategy.addView(label(plan.title, 22f, Palette.ink, bold = true).withTopMargin(7))
+        strategy.addView(label(plan.reason, 13f, Palette.inkSoft).apply {
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }.withTopMargin(8))
+        plan.projection?.let { projection ->
+            strategy.addView(divider().withVerticalMargin(14))
+            strategy.addView(moneyLine("Estimated debt-free time", formatDebtDuration(projection.payoffMonths), Palette.moss))
+            strategy.addView(moneyLine("Estimated interest", formatZar(projection.totalInterestCents), Palette.ink).withTopMargin(8))
+            strategy.addView(moneyLine("Extra above minimums", formatZar(plan.extraPaymentCents), Palette.ink).withTopMargin(8))
+        }
+        strategy.addView(action("Adjust strategy preferences", primary = false).apply {
+            setOnClickListener { showDebtPreferencesEditor(data) }
+        }.withTopMargin(15))
+        content.addView(strategy.withTopMargin(12))
+
+        if (plan.warnings.isNotEmpty()) {
+            val warning = card(Palette.peach, radius = 20, padding = 16)
+            warning.addView(label("CHECK BEFORE YOU ACT", 10f, Palette.coral, bold = true).apply { letterSpacing = 0.08f })
+            plan.warnings.forEach { message ->
+                warning.addView(label("•  $message", 12f, Palette.inkSoft).apply {
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                }.withTopMargin(8))
+            }
+            content.addView(warning.withTopMargin(12))
+        }
+
+        content.addView(sectionHeading("Payoff order", "${plan.payoffOrder.size} debts").withTopMargin(26))
+        plan.payoffOrder.forEachIndexed { index, debt ->
+            content.addView(debtCard(data, debt, index + 1).withTopMargin(10))
+        }
+        content.addView(action("+  Add another debt", primary = true).apply {
+            setOnClickListener { showDebtEditor(data, null) }
+        }.withTopMargin(12))
+
+        val basis = card(Palette.canvas, radius = 20, padding = 16)
+        basis.addView(label("How the estimate is built", 16f, Palette.ink, bold = true))
+        basis.addView(label(
+            "Monthly income ${formatZar(plan.monthlyIncomeCents)} − living plan ${formatZar(plan.monthlyLivingPlanCents)} = ${formatZar(plan.availableForDebtCents)} for debt. Carry-forward cash is not repeated as monthly income.",
+            12f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
+        basis.addView(label(
+            "This is an educational estimate, not regulated financial advice. Interest timing, fees, changing rates, and lender rules can change the result. Keep making required payments unless a credit provider or registered professional formally changes them.",
+            11f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(10))
+        content.addView(basis.withTopMargin(18))
+        return content
+    }
+
+    private fun debtCard(data: MobileDashboard, debt: Debt, order: Int): View {
+        val root = card(Palette.canvas, radius = 20, padding = 16)
+        val top = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+        top.addView(label(order.toString(), 15f, Palette.ink, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(Palette.sage, 15)
+        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        top.addView(vertical().apply {
+            setPadding(dp(11), 0, 0, 0)
+            addView(label(debt.name, 16f, Palette.ink, bold = true))
+            addView(label(
+                "${debtTypeLabel(debt.type)} · ${formatInterestRate(debt.annualInterestBps)} APR",
+                11f,
+                Palette.muted,
+            ).withTopMargin(3))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(label(formatZar(debt.balanceCents), 15f, Palette.moss, bold = true))
+        root.addView(top)
+        root.addView(label(
+            "Minimum ${formatZar(debt.minimumPaymentCents)}${debt.dueDay?.let { " · due day $it" }.orEmpty()}" +
+                if (debt.inArrears) " · In arrears" else "",
+            12f,
+            if (debt.inArrears) Palette.coral else Palette.muted,
+            bold = debt.inArrears,
+        ).withTopMargin(10))
+        root.isClickable = true
+        root.isFocusable = true
+        root.contentDescription = "Edit ${debt.name} debt"
+        root.setOnClickListener { showDebtEditor(data, debt) }
+        return root
+    }
+
+    private fun showDebtEditor(data: MobileDashboard, debt: Debt?) {
+        val typeOptions = listOf(
+            "credit_card" to "Credit card",
+            "personal_loan" to "Personal loan",
+            "overdraft" to "Overdraft",
+            "vehicle_finance" to "Vehicle finance",
+            "home_loan" to "Home loan",
+            "store_account" to "Store account",
+            "tax" to "Tax debt",
+            "medical" to "Medical debt",
+            "other" to "Other debt",
+        )
+        val form = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(16)) }
+        form.addView(label("Use the latest statement. Annual interest may be labelled APR or interest rate.", 13f, Palette.muted))
+        val name = input("Debt or credit provider name").apply { debt?.let { setText(it.name) } }
+        form.addView(name.withTopMargin(14))
+        form.addView(label("DEBT TYPE", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(12))
+        val type = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, typeOptions.map { it.second })
+            setSelection(debt?.type?.let { current -> typeOptions.indexOfFirst { it.first == current }.coerceAtLeast(0) } ?: 0)
+            background = rounded(Palette.paper, 16, Palette.line)
+            minimumHeight = dp(52)
+            setPadding(dp(10), 0, dp(10), 0)
+            contentDescription = "Debt type"
+        }
+        form.addView(type.withTopMargin(5))
+        val balance = input("Current balance in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            debt?.let { setText(BigDecimal.valueOf(it.balanceCents, 2).toPlainString()) }
+        }
+        val interest = input("Annual interest rate (%)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            debt?.let { setText(BigDecimal.valueOf(it.annualInterestBps.toLong(), 2).stripTrailingZeros().toPlainString()) }
+        }
+        val minimum = input("Minimum monthly payment in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            debt?.let { setText(BigDecimal.valueOf(it.minimumPaymentCents, 2).toPlainString()) }
+        }
+        val term = input("Remaining term in months (optional)", InputType.TYPE_CLASS_NUMBER).apply {
+            debt?.remainingTermMonths?.let { setText(it.toString()) }
+        }
+        val dueDay = input("Payment due day 1–31 (optional)", InputType.TYPE_CLASS_NUMBER).apply {
+            debt?.dueDay?.let { setText(it.toString()) }
+        }
+        form.addView(balance.withTopMargin(10))
+        form.addView(interest.withTopMargin(10))
+        form.addView(minimum.withTopMargin(10))
+        form.addView(term.withTopMargin(10))
+        form.addView(dueDay.withTopMargin(10))
+        val secured = CheckBox(this).apply {
+            text = "This debt is secured by an asset"
+            isChecked = debt?.secured == true
+            setTextColor(Palette.ink)
+            minimumHeight = dp(48)
+        }
+        val arrears = CheckBox(this).apply {
+            text = "This debt is in arrears or collections"
+            isChecked = debt?.inArrears == true
+            setTextColor(Palette.ink)
+            minimumHeight = dp(48)
+        }
+        form.addView(secured.withTopMargin(6))
+        form.addView(arrears)
+        val scroller = ScrollView(this).apply { addView(form) }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (debt == null) "Add debt" else "Edit debt")
+            .setView(scroller)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .apply { if (debt != null) setNeutralButton("Remove", null) }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val balanceCents = parseMoneyCents(balance.text.toString())
+                val minimumCents = parseMoneyCents(minimum.text.toString())
+                val interestBps = parsePercentageBps(interest.text.toString())
+                val termMonths = term.text.toString().trim().takeIf(String::isNotEmpty)?.toIntOrNull()
+                val paymentDay = dueDay.text.toString().trim().takeIf(String::isNotEmpty)?.toIntOrNull()
+                when {
+                    name.text.isNullOrBlank() -> Toast.makeText(this, "Enter a debt name.", Toast.LENGTH_SHORT).show()
+                    balanceCents == null -> Toast.makeText(this, "Enter a positive current balance.", Toast.LENGTH_SHORT).show()
+                    interestBps == null -> Toast.makeText(this, "Enter an annual interest rate of zero or more.", Toast.LENGTH_SHORT).show()
+                    minimumCents == null -> Toast.makeText(this, "Enter a positive minimum payment.", Toast.LENGTH_SHORT).show()
+                    term.text.isNotBlank() && (termMonths == null || termMonths !in 1..1200) -> Toast.makeText(this, "Enter a valid remaining term.", Toast.LENGTH_SHORT).show()
+                    dueDay.text.isNotBlank() && (paymentDay == null || paymentDay !in 1..31) -> Toast.makeText(this, "The due day must be between 1 and 31.", Toast.LENGTH_SHORT).show()
+                    else -> {
+                        val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                        save.isEnabled = false
+                        lifecycleScope.launch {
+                            runCatching {
+                                applicationState.collectorClient?.saveDebt(
+                                    entityId = data.entity.id,
+                                    debtId = debt?.id,
+                                    name = name.text.toString(),
+                                    type = typeOptions[type.selectedItemPosition].first,
+                                    balanceCents = balanceCents!!,
+                                    annualInterestBps = interestBps!!,
+                                    minimumPaymentCents = minimumCents!!,
+                                    remainingTermMonths = termMonths,
+                                    dueDay = paymentDay,
+                                    secured = secured.isChecked,
+                                    inArrears = arrears.isChecked,
+                                ) ?: error("BudgetGuard is not configured.")
+                            }.onSuccess {
+                                dialog.dismiss()
+                                loadDashboard(keepContentVisible = true)
+                            }.onFailure {
+                                save.isEnabled = true
+                                Toast.makeText(this@MainActivity, "Couldn't save this debt.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+            if (debt != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Remove ${debt.name}?")
+                    .setMessage("This removes the debt from the plan. It does not affect any bank or credit-provider account.")
+                    .setPositiveButton("Remove") { _, _ ->
+                        lifecycleScope.launch {
+                            runCatching { applicationState.collectorClient?.deleteDebt(data.entity.id, debt.id) }
+                                .onSuccess {
+                                    dialog.dismiss()
+                                    loadDashboard(keepContentVisible = true)
+                                }
+                                .onFailure { Toast.makeText(this@MainActivity, "Couldn't remove this debt.", Toast.LENGTH_LONG).show() }
+                        }
+                    }
+                    .setNegativeButton("Keep", null)
+                    .show()
+            }
+        }
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.9).toInt())
+    }
+
+    private fun showDebtPreferencesEditor(data: MobileDashboard) {
+        val goalKeys = listOf("lowest_cost", "quick_wins", "balanced")
+        val goalLabels = listOf("Lowest total interest", "Quick visible wins", "Balanced")
+        val form = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(14)) }
+        form.addView(label("WHAT MATTERS MOST", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f })
+        val goal = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, goalLabels)
+            setSelection(goalKeys.indexOf(data.debtPreferences.goal).coerceAtLeast(0))
+            background = rounded(Palette.paper, 16, Palette.line)
+            minimumHeight = dp(52)
+            setPadding(dp(10), 0, dp(10), 0)
+            contentDescription = "Debt strategy preference"
+        }
+        form.addView(goal.withTopMargin(5))
+        form.addView(label("OPTIONAL CONSOLIDATION OFFER", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(18))
+        form.addView(label("Enter a real written offer only. BudgetGuard will recommend reviewing it only if it is affordable and estimated to cost at least 5% less.", 12f, Palette.muted).withTopMargin(5))
+        val apr = input("Offer annual interest rate (%)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            data.debtPreferences.consolidationAprBps?.let { setText(BigDecimal.valueOf(it.toLong(), 2).stripTrailingZeros().toPlainString()) }
+        }
+        val term = input("Offer term in months", InputType.TYPE_CLASS_NUMBER).apply {
+            data.debtPreferences.consolidationTermMonths?.let { setText(it.toString()) }
+        }
+        val fees = input("Total fees in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            if (data.debtPreferences.consolidationFeesCents > 0) setText(BigDecimal.valueOf(data.debtPreferences.consolidationFeesCents, 2).toPlainString())
+        }
+        form.addView(apr.withTopMargin(9))
+        form.addView(term.withTopMargin(9))
+        form.addView(fees.withTopMargin(9))
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Strategy preferences")
+            .setView(form)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val hasOffer = apr.text.isNotBlank() || term.text.isNotBlank() || fees.text.isNotBlank()
+                val offerApr = if (hasOffer) parsePercentageBps(apr.text.toString()) else null
+                val offerTerm = if (hasOffer) term.text.toString().trim().toIntOrNull() else null
+                val offerFees = if (fees.text.isBlank()) 0L else parseMoneyCentsAllowZero(fees.text.toString())
+                if (hasOffer && (offerApr == null || offerTerm == null || offerTerm !in 1..1200 || offerFees == null)) {
+                    Toast.makeText(this, "Complete the offer rate and term, and enter valid fees.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                save.isEnabled = false
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.saveDebtPreferences(
+                            entityId = data.entity.id,
+                            goal = goalKeys[goal.selectedItemPosition],
+                            consolidationAprBps = offerApr,
+                            consolidationTermMonths = offerTerm,
+                            consolidationFeesCents = offerFees ?: 0,
+                        ) ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        dialog.dismiss()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        save.isEnabled = true
+                        Toast.makeText(this@MainActivity, "Couldn't save strategy preferences.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun parsePercentageBps(value: String): Int? = runCatching {
+        BigDecimal(value.replace(",", "").trim())
+            .movePointRight(2)
+            .setScale(0, RoundingMode.HALF_UP)
+            .intValueExact()
+    }.getOrNull()?.takeIf { it in 0..100000 }
+
+    private fun parseMoneyCentsAllowZero(value: String): Long? = runCatching {
+        BigDecimal(value.replace(",", "").trim())
+            .movePointRight(2)
+            .setScale(0, RoundingMode.HALF_UP)
+            .longValueExact()
+    }.getOrNull()?.takeIf { it >= 0 }
+
+    private fun formatInterestRate(bps: Int): String = BigDecimal.valueOf(bps.toLong(), 2)
+        .stripTrailingZeros()
+        .toPlainString() + "%"
+
+    private fun formatDebtDuration(months: Int): String {
+        val years = months / 12
+        val remaining = months % 12
+        return when {
+            years == 0 -> "$months ${if (months == 1) "month" else "months"}"
+            remaining == 0 -> "$years ${if (years == 1) "year" else "years"}"
+            else -> "$years ${if (years == 1) "year" else "years"} $remaining ${if (remaining == 1) "month" else "months"}"
+        }
     }
 
     private fun buildTransactions(data: MobileDashboard): View {
@@ -1063,6 +1428,7 @@ class MainActivity : ComponentActivity() {
 
         shell.addView(label("NAVIGATE", 10f, Palette.inkMuted, bold = true).apply { letterSpacing = 0.1f }.withTopMargin(24))
         shell.addView(drawerNavItem("⌂", "Home", "Today's position", Screen.HOME, dialog).withTopMargin(10))
+        shell.addView(drawerNavItem("↓", "Debt freedom", if (data.debts.isEmpty()) "Build a repayment route" else "${data.debts.size} debts · ${formatZar(data.debts.sumOf { it.balanceCents })}", Screen.DEBT, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("↕", "Activity", if (data.transactionsNeedingReview > 0) "${data.transactionsNeedingReview} need review" else "Transactions are clear", Screen.TRANSACTIONS, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("▧", "Invoice inbox", if (data.invoicesNeedingReview > 0) "${data.invoicesNeedingReview} need review" else "Forward PDF expenses", Screen.INVOICES, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("▤", "Accounts", "Balances & SMS mappings", Screen.ACCOUNTS, dialog).withTopMargin(6))

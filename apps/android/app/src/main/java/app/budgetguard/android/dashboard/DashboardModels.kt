@@ -20,6 +20,8 @@ data class MobileDashboard(
     val transactions: List<Transaction>,
     val invoiceInbox: InvoiceInbox?,
     val invoices: List<Invoice>,
+    val debts: List<Debt> = emptyList(),
+    val debtPreferences: DebtPreferences = DebtPreferences(),
 ) {
     val transactionsNeedingReview: Int
         get() = transactions.count { it.needsReview || (it.amountCents < 0 && it.categoryId == null) }

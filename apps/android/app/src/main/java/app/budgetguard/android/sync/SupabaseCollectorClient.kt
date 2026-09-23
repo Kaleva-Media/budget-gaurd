@@ -9,6 +9,8 @@ import app.budgetguard.android.dashboard.Account
 import app.budgetguard.android.dashboard.Budget
 import app.budgetguard.android.dashboard.BudgetPeriod
 import app.budgetguard.android.dashboard.Category
+import app.budgetguard.android.dashboard.Debt
+import app.budgetguard.android.dashboard.DebtPreferences
 import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.InvoiceInbox
@@ -205,6 +207,22 @@ class SupabaseCollectorClient private constructor(
                 limit(50)
             }
             .decodeList<InvoiceRow>()
+        val debts = client.from("debts")
+            .select {
+                filter {
+                    eq("entity_id", entityRow.id)
+                    eq("is_active", true)
+                }
+                order("annual_interest_bps", Order.DESCENDING)
+            }
+            .decodeList<DebtRow>()
+        val debtPreferences = client.from("debt_preferences")
+            .select {
+                filter { eq("entity_id", entityRow.id) }
+                limit(1)
+            }
+            .decodeList<DebtPreferencesRow>()
+            .firstOrNull()
 
         return MobileDashboard(
             month = formatPeriodRange(periodStart),
@@ -273,7 +291,80 @@ class SupabaseCollectorClient private constructor(
             },
             invoiceInbox = invoiceInbox?.let { InvoiceInbox(it.address) },
             invoices = invoices.map(InvoiceRow::toModel),
+            debts = debts.map(DebtRow::toModel),
+            debtPreferences = debtPreferences?.toModel() ?: DebtPreferences(),
         )
+    }
+
+    suspend fun saveDebt(
+        entityId: String,
+        debtId: String?,
+        name: String,
+        type: String,
+        balanceCents: Long,
+        annualInterestBps: Int,
+        minimumPaymentCents: Long,
+        remainingTermMonths: Int?,
+        dueDay: Int?,
+        secured: Boolean,
+        inArrears: Boolean,
+    ) {
+        require(name.isNotBlank()) { "Enter a debt name." }
+        require(balanceCents > 0) { "The current balance must be positive." }
+        require(minimumPaymentCents > 0) { "The minimum payment must be positive." }
+        require(annualInterestBps >= 0) { "The interest rate cannot be negative." }
+        val userId = authenticatedUserId()
+        val details = DebtDetails(
+            name = name.trim(),
+            debtType = type,
+            balanceCents = balanceCents,
+            annualInterestBps = annualInterestBps,
+            minimumPaymentCents = minimumPaymentCents,
+            remainingTermMonths = remainingTermMonths,
+            dueDay = dueDay,
+            secured = secured,
+            inArrears = inArrears,
+        )
+        if (debtId == null) {
+            client.from("debts").insert(NewDebt(userId, entityId, details))
+        } else {
+            client.from("debts").update(details) {
+                filter {
+                    eq("id", debtId)
+                    eq("entity_id", entityId)
+                }
+            }
+        }
+    }
+
+    suspend fun deleteDebt(entityId: String, debtId: String) {
+        authenticatedUserId()
+        client.from("debts").delete {
+            filter {
+                eq("id", debtId)
+                eq("entity_id", entityId)
+            }
+        }
+    }
+
+    suspend fun saveDebtPreferences(
+        entityId: String,
+        goal: String,
+        consolidationAprBps: Int?,
+        consolidationTermMonths: Int?,
+        consolidationFeesCents: Long,
+    ) {
+        val userId = authenticatedUserId()
+        client.from("debt_preferences").upsert(
+            DebtPreferencesUpsert(
+                userId = userId,
+                entityId = entityId,
+                goal = goal,
+                consolidationAprBps = consolidationAprBps,
+                consolidationTermMonths = consolidationTermMonths,
+                consolidationFeesCents = consolidationFeesCents,
+            ),
+        ) { onConflict = "user_id,entity_id" }
     }
 
     suspend fun updateProfile(displayName: String) {
@@ -1077,6 +1168,48 @@ private data class BudgetRow(
 )
 
 @Serializable
+private data class DebtRow(
+    val id: String,
+    val name: String,
+    @SerialName("debt_type") val debtType: String,
+    @SerialName("balance_cents") val balanceCents: Long,
+    @SerialName("annual_interest_bps") val annualInterestBps: Int,
+    @SerialName("minimum_payment_cents") val minimumPaymentCents: Long,
+    @SerialName("remaining_term_months") val remainingTermMonths: Int?,
+    @SerialName("due_day") val dueDay: Int?,
+    val secured: Boolean,
+    @SerialName("in_arrears") val inArrears: Boolean,
+) {
+    fun toModel() = Debt(
+        id = id,
+        name = name,
+        type = debtType,
+        balanceCents = balanceCents,
+        annualInterestBps = annualInterestBps,
+        minimumPaymentCents = minimumPaymentCents,
+        remainingTermMonths = remainingTermMonths,
+        dueDay = dueDay,
+        secured = secured,
+        inArrears = inArrears,
+    )
+}
+
+@Serializable
+private data class DebtPreferencesRow(
+    val goal: String,
+    @SerialName("consolidation_apr_bps") val consolidationAprBps: Int?,
+    @SerialName("consolidation_term_months") val consolidationTermMonths: Int?,
+    @SerialName("consolidation_fees_cents") val consolidationFeesCents: Long,
+) {
+    fun toModel() = DebtPreferences(
+        goal = goal,
+        consolidationAprBps = consolidationAprBps,
+        consolidationTermMonths = consolidationTermMonths,
+        consolidationFeesCents = consolidationFeesCents,
+    )
+}
+
+@Serializable
 private data class PlannedItemRow(
     val id: String,
     val direction: String,
@@ -1318,6 +1451,58 @@ private data class NewBudget(
 private data class BudgetLimitUpdate(
     @SerialName("category_id") val categoryId: String,
     @SerialName("limit_cents") val limitCents: Long,
+)
+
+@Serializable
+private data class DebtDetails(
+    val name: String,
+    @SerialName("debt_type") val debtType: String,
+    @SerialName("balance_cents") val balanceCents: Long,
+    @SerialName("annual_interest_bps") val annualInterestBps: Int,
+    @SerialName("minimum_payment_cents") val minimumPaymentCents: Long,
+    @SerialName("remaining_term_months") val remainingTermMonths: Int?,
+    @SerialName("due_day") val dueDay: Int?,
+    val secured: Boolean,
+    @SerialName("in_arrears") val inArrears: Boolean,
+)
+
+@Serializable
+private data class NewDebt(
+    @SerialName("user_id") val userId: String,
+    @SerialName("entity_id") val entityId: String,
+    val name: String,
+    @SerialName("debt_type") val debtType: String,
+    @SerialName("balance_cents") val balanceCents: Long,
+    @SerialName("annual_interest_bps") val annualInterestBps: Int,
+    @SerialName("minimum_payment_cents") val minimumPaymentCents: Long,
+    @SerialName("remaining_term_months") val remainingTermMonths: Int?,
+    @SerialName("due_day") val dueDay: Int?,
+    val secured: Boolean,
+    @SerialName("in_arrears") val inArrears: Boolean,
+) {
+    constructor(userId: String, entityId: String, details: DebtDetails) : this(
+        userId = userId,
+        entityId = entityId,
+        name = details.name,
+        debtType = details.debtType,
+        balanceCents = details.balanceCents,
+        annualInterestBps = details.annualInterestBps,
+        minimumPaymentCents = details.minimumPaymentCents,
+        remainingTermMonths = details.remainingTermMonths,
+        dueDay = details.dueDay,
+        secured = details.secured,
+        inArrears = details.inArrears,
+    )
+}
+
+@Serializable
+private data class DebtPreferencesUpsert(
+    @SerialName("user_id") val userId: String,
+    @SerialName("entity_id") val entityId: String,
+    val goal: String,
+    @SerialName("consolidation_apr_bps") val consolidationAprBps: Int?,
+    @SerialName("consolidation_term_months") val consolidationTermMonths: Int?,
+    @SerialName("consolidation_fees_cents") val consolidationFeesCents: Long,
 )
 
 private data class AccountResolution(val id: String, val entityId: String, val wasCreated: Boolean)

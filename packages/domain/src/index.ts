@@ -308,4 +308,229 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
   };
 }
 
+export interface Debt {
+  id: string;
+  name: string;
+  type: string;
+  balanceCents: number;
+  annualInterestBps: number;
+  minimumPaymentCents: number;
+  remainingTermMonths: number | null;
+  dueDay: number | null;
+  secured: boolean;
+  inArrears: boolean;
+}
+
+export interface DebtPreferences {
+  goal: "lowest_cost" | "quick_wins" | "balanced";
+  consolidationAprBps: number | null;
+  consolidationTermMonths: number | null;
+  consolidationFeesCents: number;
+}
+
+export type DebtStrategy =
+  | "avalanche"
+  | "snowball"
+  | "hybrid"
+  | "consolidation_review"
+  | "formal_support";
+
+export interface DebtProjection {
+  payoffMonths: number;
+  totalInterestCents: number;
+}
+
+export interface DebtPlanInput {
+  debts: Debt[];
+  preferences: DebtPreferences;
+  plannedItems: PlannedItem[];
+  budgets: Budget[];
+}
+
+export interface DebtPlan {
+  strategy: DebtStrategy;
+  totalBalanceCents: number;
+  minimumPaymentsCents: number;
+  monthlyIncomeCents: number;
+  monthlyLivingPlanCents: number;
+  availableForDebtCents: number;
+  extraPaymentCents: number;
+  payoffOrder: Debt[];
+  projection: DebtProjection | null;
+}
+
+export function recommendDebtStrategy(input: DebtPlanInput): DebtPlan | null {
+  const { debts, preferences, plannedItems, budgets } = input;
+  if (debts.length === 0) return null;
+
+  const monthlyIncomeCents = plannedItems
+    .filter((item) => item.direction === "income")
+    .reduce((sum, item) => sum + item.plannedCents, 0);
+  const livingItems = plannedItems.filter(
+    (item) => item.direction === "expense" && item.kind !== "debt_payment",
+  );
+  const categoryIds = new Set([
+    ...livingItems.flatMap((item) => item.categoryId ? [item.categoryId] : []),
+    ...budgets.map((budget) => budget.categoryId),
+  ]);
+  const categoryPlan = [...categoryIds].reduce((sum, categoryId) => {
+    const planned = livingItems
+      .filter((item) => item.categoryId === categoryId)
+      .reduce((categorySum, item) => categorySum + item.plannedCents, 0);
+    const limit = budgets.find((budget) => budget.categoryId === categoryId)?.limitCents ?? 0;
+    return sum + Math.max(planned, limit);
+  }, 0);
+  const uncategorisedPlan = livingItems
+    .filter((item) => item.categoryId === null)
+    .reduce((sum, item) => sum + item.plannedCents, 0);
+  const monthlyLivingPlanCents = categoryPlan + uncategorisedPlan;
+  const availableForDebtCents = monthlyIncomeCents - monthlyLivingPlanCents;
+  const minimumPaymentsCents = debts.reduce((sum, debt) => sum + debt.minimumPaymentCents, 0);
+  const totalBalanceCents = debts.reduce((sum, debt) => sum + debt.balanceCents, 0);
+  const base = {
+    totalBalanceCents,
+    minimumPaymentsCents,
+    monthlyIncomeCents,
+    monthlyLivingPlanCents,
+    availableForDebtCents,
+    extraPaymentCents: Math.max(0, availableForDebtCents - minimumPaymentsCents),
+  };
+
+  const avalancheOrder = [...debts].sort(
+    (left, right) => right.annualInterestBps - left.annualInterestBps || left.balanceCents - right.balanceCents,
+  );
+  if (
+    debts.some((debt) => debt.inArrears)
+    || availableForDebtCents < minimumPaymentsCents
+  ) {
+    return {
+      ...base,
+      strategy: "formal_support",
+      payoffOrder: avalancheOrder,
+      projection: null,
+    };
+  }
+
+  const avalanche = simulateDebtPayoff(avalancheOrder, availableForDebtCents);
+  if (avalanche === null) {
+    return {
+      ...base,
+      strategy: "formal_support",
+      payoffOrder: avalancheOrder,
+      projection: null,
+    };
+  }
+
+  const consolidation = consolidationProjection(totalBalanceCents, preferences);
+  const consolidationPayment = consolidationMonthlyPayment(totalBalanceCents, preferences);
+  const avalancheCost = totalBalanceCents + avalanche.totalInterestCents;
+  const consolidationCost = consolidation === null
+    ? null
+    : totalBalanceCents + consolidation.totalInterestCents;
+  const consolidationWins = consolidation !== null
+    && consolidationCost !== null
+    && consolidationPayment !== null
+    && consolidationPayment <= availableForDebtCents
+    && Number.isSafeInteger(avalancheCost)
+    && Number.isSafeInteger(consolidationCost)
+    && avalancheCost - consolidationCost
+      >= Math.max(10_000, Math.round(avalancheCost / 20));
+  if (consolidationWins) {
+    return {
+      ...base,
+      strategy: "consolidation_review",
+      payoffOrder: avalancheOrder,
+      projection: consolidation,
+    };
+  }
+
+  const strategy: DebtStrategy = preferences.goal === "quick_wins"
+    ? "snowball"
+    : preferences.goal === "balanced" && debts.length > 1
+      ? "hybrid"
+      : "avalanche";
+  const payoffOrder = strategy === "snowball"
+    ? [...debts].sort((left, right) => left.balanceCents - right.balanceCents || right.annualInterestBps - left.annualInterestBps)
+    : strategy === "hybrid"
+      ? hybridDebtOrder(debts)
+      : avalancheOrder;
+
+  return {
+    ...base,
+    strategy,
+    payoffOrder,
+    projection: simulateDebtPayoff(payoffOrder, availableForDebtCents),
+  };
+}
+
+export function simulateDebtPayoff(order: Debt[], monthlyBudgetCents: number): DebtProjection | null {
+  if (monthlyBudgetCents < order.reduce((sum, debt) => sum + debt.minimumPaymentCents, 0)) return null;
+  const states = order.map((debt) => ({ debt, balanceCents: debt.balanceCents }));
+  let totalInterestCents = 0;
+  for (let month = 1; month <= 600; month += 1) {
+    for (const state of states) {
+      if (state.balanceCents <= 0) continue;
+      const interest = Math.round((state.balanceCents * state.debt.annualInterestBps) / 120_000);
+      const nextBalance = state.balanceCents + interest;
+      const nextInterest = totalInterestCents + interest;
+      if (!Number.isSafeInteger(interest) || !Number.isSafeInteger(nextBalance) || !Number.isSafeInteger(nextInterest)) {
+        return null;
+      }
+      state.balanceCents = nextBalance;
+      totalInterestCents = nextInterest;
+    }
+    let available = monthlyBudgetCents;
+    for (const state of states) {
+      if (state.balanceCents <= 0) continue;
+      const payment = Math.min(state.debt.minimumPaymentCents, state.balanceCents, available);
+      state.balanceCents -= payment;
+      available -= payment;
+    }
+    for (const state of states) {
+      if (state.balanceCents <= 0 || available <= 0) continue;
+      const payment = Math.min(state.balanceCents, available);
+      state.balanceCents -= payment;
+      available -= payment;
+    }
+    if (states.every((state) => state.balanceCents <= 0)) {
+      return { payoffMonths: month, totalInterestCents };
+    }
+  }
+  return null;
+}
+
+function hybridDebtOrder(debts: Debt[]): Debt[] {
+  const smallest = [...debts].sort((left, right) => left.balanceCents - right.balanceCents)[0]!;
+  return [
+    smallest,
+    ...debts
+      .filter((debt) => debt.id !== smallest.id)
+      .sort((left, right) => right.annualInterestBps - left.annualInterestBps || left.balanceCents - right.balanceCents),
+  ];
+}
+
+function consolidationMonthlyPayment(totalBalanceCents: number, preferences: DebtPreferences): number | null {
+  const apr = preferences.consolidationAprBps;
+  const months = preferences.consolidationTermMonths;
+  if (apr === null || months === null) return null;
+  const monthlyRate = apr / 120_000;
+  const payment = monthlyRate === 0
+    ? totalBalanceCents / months
+    : totalBalanceCents * monthlyRate / (1 - (1 + monthlyRate) ** -months);
+  const rounded = Math.round(payment);
+  return Number.isSafeInteger(rounded) ? rounded : null;
+}
+
+function consolidationProjection(totalBalanceCents: number, preferences: DebtPreferences): DebtProjection | null {
+  const months = preferences.consolidationTermMonths;
+  const payment = consolidationMonthlyPayment(totalBalanceCents, preferences);
+  if (months === null || payment === null) return null;
+  const totalCost = payment * months + preferences.consolidationFeesCents;
+  if (!Number.isSafeInteger(totalCost)) return null;
+  return {
+    payoffMonths: months,
+    totalInterestCents: Math.max(0, totalCost - totalBalanceCents),
+  };
+}
+
 export { demoDashboard } from "./demo-data";
