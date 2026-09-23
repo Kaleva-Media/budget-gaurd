@@ -1,10 +1,53 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-22. Production source baseline: `7e26a20` (`main`).
+Updated: 2026-09-23. Production source baseline: `075eb45` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
+- **2026-09-23 debt management (source only)**: Android now has a separate
+  Debt freedom destination with owner/entity-scoped debt onboarding, balances,
+  APRs, minimums, optional remaining terms and due days, secured/arrears flags,
+  strategy preferences, payoff ordering, and estimates. The pure Kotlin and
+  TypeScript engines recommend avalanche, snowball, a quick-win/avalanche
+  hybrid, review of a user-entered consolidation offer, or registered debt
+  counselling/debt-management support. Monthly capacity uses planned income,
+  living expenses, and flexible limits without repeating carry-over or
+  double-counting category plans. Arrears, unaffordable minimums, and failure to
+  amortize within 600 months route to professional support; users are never told
+  to stop payments. The additive migration creates private `debts` and
+  `debt_preferences` tables with authenticated CRUD grants, RLS, owner/entity
+  checks, and denial tests. Local verification passed 30 TypeScript domain tests,
+  TypeScript checks, the production web build, Android parser/app unit tests,
+  Android lint, debug APK assembly, all 15 pgTAP files (83 tests), local schema
+  lint with no errors, 14 deployment-controller tests, and deployment policy.
+  The debug APK is `BudgetGuard-0.5.4-debt-freedom-debug.apk` with SHA-256
+  `d344773b63970f3ad9fb2b33e95ea7d180e5f68b188eb9e07dfdaf5b9955f995`.
+  Source changes and migration are not yet merged or deployed; `adb` was not
+  available locally, so installed-device behaviour is unverified.
+
+- **2026-09-22 native flexible-budget setup (source only)**: Android users can
+  now add, edit, change, and remove monthly category limits for the selected
+  entity and period. The dashboard shows total flexible money remaining, a
+  daily pace, pending spend, each category's used/remaining position, and an
+  explicit over-limit state. Category choices are restricted to the active
+  personal or business taxonomy already loaded for that entity, and duplicate
+  limits are prevented in the editor. Existing owner-scoped `budgets` RLS and
+  authenticated grants cover the mutations, so this change requires no schema
+  migration. New periods continue copying the prior month's limits. Source
+  verification passed Android parser/app unit tests, Android lint, debug APK
+  assembly, all 23 TypeScript domain tests, TypeScript checks, and all 14 local
+  pgTAP files (69 tests), including create/read/update/delete and cross-owner
+  denial for category limits. This branch is not yet merged, deployed, or
+  installed-device verified.
+- **2026-09-22 planned daily allowance clarification (source only)**: Android now
+  shows a future period's projected plan surplus divided by that month's day count
+  as the planned daily allowance, instead of relabelling the current account-backed
+  Safe-to-spend total. Negative forecasts are labelled as daily shortfalls. Current
+  periods retain account-backed Safe to spend, while past periods show their plan
+  result rather than today's account balances. Android unit tests, debug compilation,
+  APK assembly, all 23 TypeScript domain tests, and TypeScript checks pass. This
+  source change is not yet merged, deployed, or installed-device verified.
 - **2026-09-22 search/paid deployment**: `7e26a20` is live. Deployment run
   `35749146989` completed successfully after a restore-tested database backup,
   applied one pending migration (`20260922122818_planned_item_payment_confirmations.sql`),
@@ -137,7 +180,7 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 | Web companion | Overview, monthly plan, account lanes, activity and Quick Sort | TypeScript checks passed before initial push |
 | Payment initiation | None | Not implemented; never infer permission from an invoice |
 
-Android source build version: `0.5.2`, version code `13`. This does not prove which APK a user currently has installed.
+Android source build version: `0.5.4`, version code `15`. This does not prove which APK a user currently has installed.
 
 Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 
