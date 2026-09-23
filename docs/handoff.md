@@ -1,9 +1,28 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-23. Production source baseline: `167a29f` (`main`).
+Updated: 2026-09-23. Production source baseline: `88c5b3a` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **2026-09-23 debt coaching implementation candidate**: The `codex/debt-coaching`
+  branch turns the existing recommendation into a monthly action plan with detailed
+  projections, actual-versus-forecast chart data, payoff events, 25/50/75/100%
+  milestones, and comparable avalanche/snowball/hybrid outcomes in both Kotlin and
+  TypeScript. Android adds the coaching UI, atomic all-debt monthly check-ins,
+  same-month corrections, retained paid-off/archived history, an NCR support route,
+  optional generic local reminders, and user-approved 5–30% spending scenarios.
+  Spending suggestions use median posted spend from up to three completed months and
+  require at least two months plus 75% categorized coverage; they never change a
+  limit without opening the existing editor. Migration
+  `20260923151253_debt_coaching_and_check_ins.sql` and
+  `20260923154242_debt_strategy_selection.sql` add the owner/entity-scoped
+  check-in tables, reminder preferences, soft-close state, atomic security-invoker
+  RPC, and security-invoker spending view with explicit grants. Local verification
+  so far: 33 TypeScript domain tests, TypeScript checks, production web build,
+  Android parser/app unit tests, a fresh full migration replay, and all 16 pgTAP
+  files (104 tests). Production deployment and installed-device behaviour are not
+  yet verified. Android candidate version is `0.6.0` (code 16).
 
 - **2026-09-23 debt management deployment**: Android now has a separate
   Debt freedom destination with owner/entity-scoped debt onboarding, balances,
@@ -191,7 +210,7 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 | Web companion | Overview, monthly plan, account lanes, activity and Quick Sort | TypeScript checks passed before initial push |
 | Payment initiation | None | Not implemented; never infer permission from an invoice |
 
-Android source build version: `0.5.4`, version code `15`. This does not prove which APK a user currently has installed.
+Android source build version: `0.6.0`, version code `16`. This does not prove which APK a user currently has installed.
 
 Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 

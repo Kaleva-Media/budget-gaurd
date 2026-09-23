@@ -10,7 +10,10 @@ import app.budgetguard.android.dashboard.Budget
 import app.budgetguard.android.dashboard.BudgetPeriod
 import app.budgetguard.android.dashboard.Category
 import app.budgetguard.android.dashboard.Debt
+import app.budgetguard.android.dashboard.DebtCheckIn
+import app.budgetguard.android.dashboard.DebtCheckInBalance
 import app.budgetguard.android.dashboard.DebtPreferences
+import app.budgetguard.android.dashboard.DebtSpendingMonth
 import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.InvoiceInbox
@@ -32,6 +35,8 @@ import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.LocalDate
@@ -209,10 +214,7 @@ class SupabaseCollectorClient private constructor(
             .decodeList<InvoiceRow>()
         val debts = client.from("debts")
             .select {
-                filter {
-                    eq("entity_id", entityRow.id)
-                    eq("is_active", true)
-                }
+                filter { eq("entity_id", entityRow.id) }
                 order("annual_interest_bps", Order.DESCENDING)
             }
             .decodeList<DebtRow>()
@@ -223,6 +225,32 @@ class SupabaseCollectorClient private constructor(
             }
             .decodeList<DebtPreferencesRow>()
             .firstOrNull()
+        val debtCheckIns = client.from("debt_check_ins")
+            .select {
+                filter { eq("entity_id", entityRow.id) }
+                order("check_in_month", Order.DESCENDING)
+                limit(12)
+            }
+            .decodeList<DebtCheckInRow>()
+        val checkInIds = debtCheckIns.map(DebtCheckInRow::id)
+        val debtCheckInBalances = if (checkInIds.isEmpty()) emptyList() else {
+            client.from("debt_check_in_balances")
+                .select { filter { isIn("check_in_id", checkInIds) } }
+                .decodeList<DebtCheckInBalanceRow>()
+        }
+        val spendingEnd = YearMonth.now().atDay(1)
+        val spendingStart = YearMonth.now().minusMonths(3).atDay(1)
+        val debtSpendingHistory = client.from("debt_spending_history")
+            .select {
+                filter {
+                    eq("entity_id", entityRow.id)
+                    gte("spend_month", spendingStart.toString())
+                    lt("spend_month", spendingEnd.toString())
+                }
+                order("spend_month", Order.ASCENDING)
+            }
+            .decodeList<DebtSpendingRow>()
+        val balancesByCheckIn = debtCheckInBalances.groupBy(DebtCheckInBalanceRow::checkInId)
 
         return MobileDashboard(
             month = formatPeriodRange(periodStart),
@@ -255,7 +283,7 @@ class SupabaseCollectorClient private constructor(
                     displayOrder = row.displayOrder,
                 )
             },
-            categories = categories.map { Category(it.id, it.name, it.colour, it.icon) },
+            categories = categories.map { Category(it.id, it.name, it.colour, it.icon, it.systemKey) },
             budgets = budgets.map { Budget(it.id, it.categoryId, it.limitCents, it.spentCents, it.committedCents) },
             plannedItems = plannedItems.map { row ->
                 PlannedItem(
@@ -293,6 +321,15 @@ class SupabaseCollectorClient private constructor(
             invoices = invoices.map(InvoiceRow::toModel),
             debts = debts.map(DebtRow::toModel),
             debtPreferences = debtPreferences?.toModel() ?: DebtPreferences(),
+            debtCheckIns = debtCheckIns.map { row ->
+                DebtCheckIn(
+                    id = row.id,
+                    month = row.checkInMonth,
+                    recordedOn = row.recordedOn,
+                    balances = balancesByCheckIn[row.id].orEmpty().map(DebtCheckInBalanceRow::toModel),
+                )
+            },
+            debtSpendingHistory = debtSpendingHistory.map(DebtSpendingRow::toModel),
         )
     }
 
@@ -339,7 +376,11 @@ class SupabaseCollectorClient private constructor(
 
     suspend fun deleteDebt(entityId: String, debtId: String) {
         authenticatedUserId()
-        client.from("debts").delete {
+        client.from("debts").update(DebtCloseUpdate(
+            isActive = false,
+            closedReason = "archived",
+            closedAt = LocalDate.now().toString(),
+        )) {
             filter {
                 eq("id", debtId)
                 eq("entity_id", entityId)
@@ -353,6 +394,9 @@ class SupabaseCollectorClient private constructor(
         consolidationAprBps: Int?,
         consolidationTermMonths: Int?,
         consolidationFeesCents: Long,
+        reminderEnabled: Boolean = false,
+        reminderDay: Int = 28,
+        preferredStrategy: String = "recommended",
     ) {
         val userId = authenticatedUserId()
         client.from("debt_preferences").upsert(
@@ -363,8 +407,36 @@ class SupabaseCollectorClient private constructor(
                 consolidationAprBps = consolidationAprBps,
                 consolidationTermMonths = consolidationTermMonths,
                 consolidationFeesCents = consolidationFeesCents,
+                reminderEnabled = reminderEnabled,
+                reminderDay = reminderDay,
+                preferredStrategy = preferredStrategy,
             ),
         ) { onConflict = "user_id,entity_id" }
+    }
+
+    suspend fun recordDebtCheckIn(
+        entityId: String,
+        month: String,
+        balances: List<DebtCheckInBalance>,
+    ) {
+        authenticatedUserId()
+        val payload = buildJsonArray {
+            balances.forEach { balance ->
+                add(buildJsonObject {
+                    put("debt_id", balance.debtId)
+                    put("balance_cents", balance.balanceCents)
+                    put("annual_interest_bps", balance.annualInterestBps)
+                    put("minimum_payment_cents", balance.minimumPaymentCents)
+                    put("in_arrears", balance.inArrears)
+                })
+            }
+        }
+        client.postgrest.rpc("record_debt_check_in", buildJsonObject {
+            put("p_entity_id", entityId)
+            put("p_check_in_month", month)
+            put("p_recorded_on", LocalDate.now().toString())
+            put("p_balances", payload)
+        })
     }
 
     suspend fun updateProfile(displayName: String) {
@@ -1156,6 +1228,7 @@ private data class CategoryRow(
     val name: String,
     val colour: String,
     val icon: String,
+    @SerialName("system_key") val systemKey: String? = null,
 )
 
 @Serializable
@@ -1179,6 +1252,9 @@ private data class DebtRow(
     @SerialName("due_day") val dueDay: Int?,
     val secured: Boolean,
     @SerialName("in_arrears") val inArrears: Boolean,
+    @SerialName("is_active") val isActive: Boolean,
+    @SerialName("closed_reason") val closedReason: String?,
+    @SerialName("closed_at") val closedAt: String?,
 ) {
     fun toModel() = Debt(
         id = id,
@@ -1191,22 +1267,67 @@ private data class DebtRow(
         dueDay = dueDay,
         secured = secured,
         inArrears = inArrears,
+        isActive = isActive,
+        closedReason = closedReason,
+        closedAt = closedAt,
     )
 }
 
 @Serializable
 private data class DebtPreferencesRow(
     val goal: String,
+    @SerialName("preferred_strategy") val preferredStrategy: String?,
     @SerialName("consolidation_apr_bps") val consolidationAprBps: Int?,
     @SerialName("consolidation_term_months") val consolidationTermMonths: Int?,
     @SerialName("consolidation_fees_cents") val consolidationFeesCents: Long,
+    @SerialName("reminder_enabled") val reminderEnabled: Boolean?,
+    @SerialName("reminder_day") val reminderDay: Int?,
 ) {
     fun toModel() = DebtPreferences(
         goal = goal,
+        preferredStrategy = preferredStrategy ?: "recommended",
         consolidationAprBps = consolidationAprBps,
         consolidationTermMonths = consolidationTermMonths,
         consolidationFeesCents = consolidationFeesCents,
+        reminderEnabled = reminderEnabled ?: false,
+        reminderDay = reminderDay ?: 28,
     )
+}
+
+@Serializable
+private data class DebtCheckInRow(
+    val id: String,
+    @SerialName("check_in_month") val checkInMonth: String,
+    @SerialName("recorded_on") val recordedOn: String,
+)
+
+@Serializable
+private data class DebtCheckInBalanceRow(
+    @SerialName("check_in_id") val checkInId: String,
+    @SerialName("debt_id") val debtId: String,
+    @SerialName("balance_cents") val balanceCents: Long,
+    @SerialName("annual_interest_bps") val annualInterestBps: Int,
+    @SerialName("minimum_payment_cents") val minimumPaymentCents: Long,
+    @SerialName("in_arrears") val inArrears: Boolean,
+) {
+    fun toModel() = DebtCheckInBalance(
+        debtId = debtId,
+        balanceCents = balanceCents,
+        annualInterestBps = annualInterestBps,
+        minimumPaymentCents = minimumPaymentCents,
+        inArrears = inArrears,
+    )
+}
+
+@Serializable
+private data class DebtSpendingRow(
+    @SerialName("spend_month") val spendMonth: String,
+    @SerialName("category_id") val categoryId: String?,
+    @SerialName("category_name") val categoryName: String?,
+    @SerialName("system_key") val systemKey: String?,
+    @SerialName("spent_cents") val spentCents: Long,
+) {
+    fun toModel() = DebtSpendingMonth(spendMonth, categoryId, categoryName, systemKey, spentCents)
 }
 
 @Serializable
@@ -1503,6 +1624,16 @@ private data class DebtPreferencesUpsert(
     @SerialName("consolidation_apr_bps") val consolidationAprBps: Int?,
     @SerialName("consolidation_term_months") val consolidationTermMonths: Int?,
     @SerialName("consolidation_fees_cents") val consolidationFeesCents: Long,
+    @SerialName("reminder_enabled") val reminderEnabled: Boolean,
+    @SerialName("reminder_day") val reminderDay: Int,
+    @SerialName("preferred_strategy") val preferredStrategy: String,
+)
+
+@Serializable
+private data class DebtCloseUpdate(
+    @SerialName("is_active") val isActive: Boolean,
+    @SerialName("closed_reason") val closedReason: String,
+    @SerialName("closed_at") val closedAt: String,
 )
 
 private data class AccountResolution(val id: String, val entityId: String, val wasCreated: Boolean)

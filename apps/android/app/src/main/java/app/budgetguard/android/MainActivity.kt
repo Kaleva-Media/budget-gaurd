@@ -6,11 +6,14 @@ import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -28,6 +31,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Space
 import android.widget.Spinner
 import android.widget.TextView
@@ -46,7 +50,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.budgetguard.android.dashboard.Account
 import app.budgetguard.android.dashboard.Budget
 import app.budgetguard.android.dashboard.Debt
+import app.budgetguard.android.dashboard.DebtCheckInBalance
 import app.budgetguard.android.dashboard.DebtStrategy
+import app.budgetguard.android.dashboard.DebtTrajectoryView
 import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.ExpenseOrder
 import app.budgetguard.android.dashboard.HomeHeroMode
@@ -58,6 +64,7 @@ import app.budgetguard.android.dashboard.availableBudgetCategories
 import app.budgetguard.android.dashboard.budgetSummary
 import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.debtPlan
+import app.budgetguard.android.dashboard.debtSpendingAnalysis
 import app.budgetguard.android.dashboard.debtTypeLabel
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.dashboard.formatTransactionDate
@@ -67,6 +74,7 @@ import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
+import app.budgetguard.android.sync.DebtReminderScheduler
 import app.budgetguard.android.sync.SyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
@@ -117,8 +125,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) Toast.makeText(this, "In-app check-ins will still work without notifications.", Toast.LENGTH_LONG).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra("open_debt_freedom", false) == true) selectedScreen = Screen.DEBT
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -162,6 +175,13 @@ class MainActivity : ComponentActivity() {
                     dashboard = it
                     selectedEntityId = it.entity.id
                     selectedPeriodStart = it.period.startsOn
+                    DebtReminderScheduler.sync(
+                        this@MainActivity,
+                        it.entity.id,
+                        it.debtPreferences.reminderEnabled,
+                        it.debtPreferences.reminderDay,
+                        it.debtCheckIns.maxByOrNull { checkIn -> checkIn.month }?.month,
+                    )
                     if (client.isOnboardingComplete()) renderDashboard() else renderOnboarding(it)
                 }
                 .onFailure {
@@ -655,18 +675,20 @@ class MainActivity : ComponentActivity() {
     private fun buildDebtFreedom(data: MobileDashboard): View {
         val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
         content.addView(buildHeader("Debt freedom"))
-        content.addView(label("A clear route out of debt.", 30f, Palette.ink, bold = true).withTopMargin(22))
+        content.addView(label("Your route out of debt.", 30f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label(
-            "Add every balance and minimum payment. BudgetGuard uses this entity's current income, expenses, and flexible budgets to estimate a repayment path.",
+            "A practical monthly plan, based on ${data.entity.name}'s balances, income, expenses, and flexible budgets.",
             14f,
             Palette.muted,
         ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
 
-        if (data.debts.isEmpty()) {
+        val activeDebts = data.debts.filter { it.isActive && it.balanceCents > 0 }
+        if (activeDebts.isEmpty()) {
             val start = card(Palette.sage, radius = 24, padding = 20)
-            start.addView(label("Start with one honest number", 20f, Palette.ink, bold = true))
+            start.addView(label(if (data.debts.isEmpty()) "Start with one honest number" else "You have no active debt", 20f, Palette.ink, bold = true))
             start.addView(label(
-                "Add credit cards, loans, overdrafts, store accounts, tax debt, or medical debt. Your records stay private to ${data.entity.name}.",
+                if (data.debts.isEmpty()) "Add every credit card, loan, overdraft, store account, tax debt, or medical debt. Your records stay private to ${data.entity.name}."
+                else "Paid-off and archived debts remain in your history. Add a debt if a balance still needs a plan.",
                 13f,
                 Palette.inkSoft,
             ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
@@ -683,6 +705,15 @@ class MainActivity : ComponentActivity() {
                 Palette.muted,
             ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
             content.addView(methods.withTopMargin(12))
+            val closedDebts = data.debts.filterNot(Debt::isActive)
+            if (closedDebts.isNotEmpty()) {
+                val history = card(Palette.canvas, radius = 20, padding = 16)
+                history.addView(label("Paid-off & archived", 16f, Palette.ink, bold = true))
+                closedDebts.forEach { debt ->
+                    history.addView(label("${if (debt.closedReason == "paid_off") "✓" else "—"}  ${debt.name}", 12f, if (debt.closedReason == "paid_off") Palette.moss else Palette.muted).withTopMargin(8))
+                }
+                content.addView(history.withTopMargin(12))
+            }
             return content
         }
 
@@ -696,6 +727,35 @@ class MainActivity : ComponentActivity() {
             Palette.inkMuted,
         ).withTopMargin(8))
         content.addView(summary.withTopMargin(20))
+
+        val currentMonth = YearMonth.now().atDay(1).toString()
+        val checkedIn = data.debtCheckIns.any { it.month == currentMonth }
+        val checkInDue = LocalDate.now().dayOfMonth >= data.debtPreferences.reminderDay && !checkedIn
+        val checkIn = card(if (checkInDue) Palette.peach else Palette.canvas, radius = 20, padding = 16)
+        checkIn.addView(label(if (checkedIn) "THIS MONTH IS UP TO DATE" else if (checkInDue) "MONTHLY CHECK-IN DUE" else "MONTHLY CHECK-IN", 10f, if (checkInDue) Palette.coral else Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+        checkIn.addView(label(
+            if (checkedIn) "Balances were updated this month. You can correct them if a statement arrives later."
+            else "Update every balance once a month so the actual line and forecast stay honest.",
+            13f,
+            Palette.inkSoft,
+        ).withTopMargin(6))
+        checkIn.addView(action(if (checkedIn) "Review this month's check-in" else "Update all balances", primary = checkInDue).apply {
+            setOnClickListener { showDebtCheckIn(data) }
+        }.withTopMargin(12))
+        content.addView(checkIn.withTopMargin(12))
+
+        if (plan.strategy != DebtStrategy.FORMAL_SUPPORT) {
+            val firstTarget = plan.projection?.trajectory?.getOrNull(1)?.targetDebtName ?: plan.payoffOrder.firstOrNull()?.name
+            val thisMonth = card(Palette.sage, radius = 22, padding = 18)
+            thisMonth.addView(label("THIS MONTH", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+            thisMonth.addView(label("Put ${formatZar(plan.availableForDebtCents)} toward debt", 21f, Palette.ink, bold = true).withTopMargin(7))
+            thisMonth.addView(label(
+                "Pay every minimum (${formatZar(plan.minimumPaymentsCents)} total), then send ${formatZar(plan.extraPaymentCents)} extra to ${firstTarget ?: "the first debt in your plan"}.",
+                13f,
+                Palette.inkSoft,
+            ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
+            content.addView(thisMonth.withTopMargin(12))
+        }
 
         val strategyColour = if (plan.strategy == DebtStrategy.FORMAL_SUPPORT) Palette.peach else Palette.sage
         val strategy = card(strategyColour, radius = 22, padding = 18)
@@ -713,7 +773,94 @@ class MainActivity : ComponentActivity() {
         strategy.addView(action("Adjust strategy preferences", primary = false).apply {
             setOnClickListener { showDebtPreferencesEditor(data) }
         }.withTopMargin(15))
+        if (plan.strategy == DebtStrategy.FORMAL_SUPPORT && data.entity.kind == "personal") {
+            strategy.addView(action("Find an NCR-registered debt counsellor", primary = true).apply {
+                setOnClickListener { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ncr.org.za/register_of_registrants/registered_dc.php"))) }
+            }.withTopMargin(10))
+        }
         content.addView(strategy.withTopMargin(12))
+
+        plan.projection?.let { projection ->
+            content.addView(sectionHeading("Your payoff path", "Solid actual · dashed forecast").withTopMargin(26))
+            val visual = card(Palette.canvas, radius = 22, padding = 16)
+            val actual = data.debtCheckIns.sortedBy { it.month }.map { it.totalBalanceCents }
+            visual.addView(DebtTrajectoryView(this).apply {
+                setPadding(0, dp(4), 0, 0)
+                setData(actual, projection.trajectory, projection.milestones)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(210)))
+            visual.addView(label(
+                "Current ${formatZar(plan.totalBalanceCents)} → debt-free in about ${formatDebtDuration(projection.payoffMonths)}. Estimated interest: ${formatZar(projection.totalInterestCents)}.",
+                12f,
+                Palette.muted,
+            ).withTopMargin(8))
+            content.addView(visual.withTopMargin(10))
+
+            content.addView(sectionHeading("Milestones", "Keep checking in").withTopMargin(24))
+            val timeline = card(Palette.canvas, radius = 22, padding = 16)
+            projection.milestones.forEachIndexed { index, milestone ->
+                timeline.addView(label(
+                    "${if (milestone.percentage == 100) "✓" else "○"}  ${milestone.percentage}% repaid · month ${milestone.month} · ${formatZar(milestone.remainingBalanceCents)} left",
+                    13f,
+                    if (milestone.percentage == 100) Palette.moss else Palette.ink,
+                    bold = milestone.percentage == 100,
+                ).withTopMargin(if (index == 0) 0 else 10))
+            }
+            projection.payoffEvents.forEach { event ->
+                timeline.addView(label("Debt cleared · ${event.debtName} in month ${event.month}", 11f, Palette.muted).withTopMargin(8))
+            }
+            content.addView(timeline.withTopMargin(10))
+        }
+
+        if (plan.comparisons.isNotEmpty()) {
+            content.addView(sectionHeading("Compare approaches", "Same monthly capacity").withTopMargin(26))
+            val fastest = plan.comparisons.mapNotNull { it.projection?.payoffMonths }.maxOrNull()?.coerceAtLeast(1) ?: 1
+            plan.comparisons.forEach { comparison ->
+                val projection = comparison.projection ?: return@forEach
+                val row = card(Palette.canvas, radius = 19, padding = 15)
+                row.addView(moneyLine(strategyLabel(comparison.strategy), formatDebtDuration(projection.payoffMonths), Palette.ink))
+                val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = fastest
+                    progress = (fastest - projection.payoffMonths + 1).coerceAtLeast(1)
+                    progressTintList = ColorStateList.valueOf(if (comparison.strategy == plan.strategy) Palette.moss else Palette.muted)
+                    progressBackgroundTintList = ColorStateList.valueOf(Palette.line)
+                }
+                row.addView(bar.withHeight(6).withTopMargin(9))
+                row.addView(label("${formatZar(projection.totalInterestCents)} estimated interest", 11f, Palette.muted).withTopMargin(6))
+                if (comparison.strategy in listOf(DebtStrategy.AVALANCHE, DebtStrategy.SNOWBALL, DebtStrategy.HYBRID) && comparison.strategy != plan.strategy) {
+                    row.addView(action("Use this approach", primary = false, compact = true).apply {
+                        setOnClickListener { useDebtStrategy(data, comparison.strategy) }
+                    }.withTopMargin(9))
+                } else if (comparison.strategy == plan.strategy) {
+                    row.addView(label("CURRENT APPROACH", 9f, Palette.moss, bold = true).withTopMargin(9))
+                }
+                content.addView(row.withTopMargin(9))
+            }
+        }
+
+        val spending = data.debtSpendingAnalysis()
+        content.addView(sectionHeading("Find room in spending", "Your approval required").withTopMargin(26))
+        val spendingCard = card(Palette.canvas, radius = 22, padding = 17)
+        if (spending.isReady && spending.suggestions.isNotEmpty()) {
+            spendingCard.addView(label("Based on ${spending.monthCount} completed months", 16f, Palette.ink, bold = true))
+            spendingCard.addView(label("Choose flexible categories and preview a 5–30% reduction. Nothing changes until you edit the budget.", 12f, Palette.muted).withTopMargin(6))
+            spending.suggestions.take(3).forEach { suggestion ->
+                spendingCard.addView(moneyLine(suggestion.categoryName, "median ${formatZar(suggestion.medianMonthlySpendCents)}", Palette.ink).withTopMargin(9))
+            }
+            spendingCard.addView(action("Build a spending scenario", primary = true).apply {
+                setOnClickListener { showDebtSpendingScenario(data) }
+            }.withTopMargin(14))
+        } else {
+            spendingCard.addView(label("More clean history is needed", 16f, Palette.ink, bold = true))
+            spendingCard.addView(label(
+                "Suggestions appear after at least 2 completed months and 75% categorised coverage. Current coverage: ${spending.coveragePercentage}% across ${spending.monthCount} months.",
+                12f,
+                Palette.muted,
+            ).withTopMargin(6))
+            spendingCard.addView(action("Quick Sort transactions", primary = false).apply {
+                setOnClickListener { selectedScreen = Screen.TRANSACTIONS; renderDashboard() }
+            }.withTopMargin(12))
+        }
+        content.addView(spendingCard.withTopMargin(10))
 
         if (plan.warnings.isNotEmpty()) {
             val warning = card(Palette.peach, radius = 20, padding = 16)
@@ -733,6 +880,20 @@ class MainActivity : ComponentActivity() {
         content.addView(action("+  Add another debt", primary = true).apply {
             setOnClickListener { showDebtEditor(data, null) }
         }.withTopMargin(12))
+
+        val closedDebts = data.debts.filterNot(Debt::isActive)
+        if (closedDebts.isNotEmpty()) {
+            val history = card(Palette.canvas, radius = 20, padding = 16)
+            history.addView(label("Paid-off & archived", 16f, Palette.ink, bold = true))
+            closedDebts.forEach { debt ->
+                history.addView(label(
+                    "${if (debt.closedReason == "paid_off") "✓" else "—"}  ${debt.name} · ${debt.closedReason?.replace('_', ' ') ?: "closed"}",
+                    12f,
+                    if (debt.closedReason == "paid_off") Palette.moss else Palette.muted,
+                ).withTopMargin(8))
+            }
+            content.addView(history.withTopMargin(14))
+        }
 
         val basis = card(Palette.canvas, radius = 20, padding = 16)
         basis.addView(label("How the estimate is built", 16f, Palette.ink, bold = true))
@@ -896,9 +1057,9 @@ class MainActivity : ComponentActivity() {
             }
             if (debt != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 AlertDialog.Builder(this)
-                    .setTitle("Remove ${debt.name}?")
-                    .setMessage("This removes the debt from the plan. It does not affect any bank or credit-provider account.")
-                    .setPositiveButton("Remove") { _, _ ->
+                    .setTitle("Archive ${debt.name}?")
+                    .setMessage("This removes the debt from the active plan but keeps it in your history. It does not affect any bank or credit-provider account.")
+                    .setPositiveButton("Archive") { _, _ ->
                         lifecycleScope.launch {
                             runCatching { applicationState.collectorClient?.deleteDebt(data.entity.id, debt.id) }
                                 .onSuccess {
@@ -944,6 +1105,18 @@ class MainActivity : ComponentActivity() {
         form.addView(apr.withTopMargin(9))
         form.addView(term.withTopMargin(9))
         form.addView(fees.withTopMargin(9))
+        form.addView(label("MONTHLY CHECK-IN REMINDER", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(18))
+        val reminders = CheckBox(this).apply {
+            text = "Remind me each month"
+            isChecked = data.debtPreferences.reminderEnabled
+            setTextColor(Palette.ink)
+            minimumHeight = dp(48)
+        }
+        val reminderDay = input("Reminder day 1–28", InputType.TYPE_CLASS_NUMBER).apply {
+            setText(data.debtPreferences.reminderDay.toString())
+        }
+        form.addView(reminders.withTopMargin(4))
+        form.addView(reminderDay.withTopMargin(4))
         val dialog = AlertDialog.Builder(this)
             .setTitle("Strategy preferences")
             .setView(form)
@@ -956,8 +1129,13 @@ class MainActivity : ComponentActivity() {
                 val offerApr = if (hasOffer) parsePercentageBps(apr.text.toString()) else null
                 val offerTerm = if (hasOffer) term.text.toString().trim().toIntOrNull() else null
                 val offerFees = if (fees.text.isBlank()) 0L else parseMoneyCentsAllowZero(fees.text.toString())
+                val selectedReminderDay = reminderDay.text.toString().toIntOrNull()
                 if (hasOffer && (offerApr == null || offerTerm == null || offerTerm !in 1..1200 || offerFees == null)) {
                     Toast.makeText(this, "Complete the offer rate and term, and enter valid fees.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (selectedReminderDay == null || selectedReminderDay !in 1..28) {
+                    Toast.makeText(this, "The reminder day must be between 1 and 28.", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
                 val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
@@ -970,9 +1148,17 @@ class MainActivity : ComponentActivity() {
                             consolidationAprBps = offerApr,
                             consolidationTermMonths = offerTerm,
                             consolidationFeesCents = offerFees ?: 0,
+                            reminderEnabled = reminders.isChecked,
+                            reminderDay = selectedReminderDay,
+                            preferredStrategy = "recommended",
                         ) ?: error("BudgetGuard is not configured.")
                     }.onSuccess {
                         dialog.dismiss()
+                        if (reminders.isChecked && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         loadDashboard(keepContentVisible = true)
                     }.onFailure {
                         save.isEnabled = true
@@ -982,6 +1168,177 @@ class MainActivity : ComponentActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun showDebtCheckIn(data: MobileDashboard) {
+        val month = YearMonth.now().atDay(1).toString()
+        val existing = data.debtCheckIns.firstOrNull { it.month == month }
+        val existingIds = existing?.balances?.mapTo(mutableSetOf(), DebtCheckInBalance::debtId).orEmpty()
+        val debts = data.debts.filter { it.isActive || it.id in existingIds }
+        if (debts.isEmpty()) return
+        data class Fields(val debt: Debt, val balance: EditText, val apr: EditText, val minimum: EditText, val arrears: CheckBox)
+        val form = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(16)) }
+        form.addView(label("Enter every latest statement balance. A zero balance marks that debt paid off; you can correct this month's check-in later.", 13f, Palette.muted))
+        val fields = debts.map { debt ->
+            val saved = existing?.balances?.firstOrNull { it.debtId == debt.id }
+            form.addView(label(debt.name, 17f, Palette.ink, bold = true).withTopMargin(18))
+            val balance = input("Current balance in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+                setText(BigDecimal.valueOf(saved?.balanceCents ?: debt.balanceCents, 2).toPlainString())
+            }
+            val apr = input("Annual interest rate (%)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+                setText(BigDecimal.valueOf((saved?.annualInterestBps ?: debt.annualInterestBps).toLong(), 2).stripTrailingZeros().toPlainString())
+            }
+            val minimum = input("Minimum monthly payment in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+                setText(BigDecimal.valueOf(saved?.minimumPaymentCents ?: debt.minimumPaymentCents, 2).toPlainString())
+            }
+            val arrears = CheckBox(this).apply {
+                text = "In arrears or collections"
+                isChecked = saved?.inArrears ?: debt.inArrears
+                setTextColor(Palette.ink)
+                minimumHeight = dp(44)
+            }
+            form.addView(balance.withTopMargin(8))
+            form.addView(apr.withTopMargin(7))
+            form.addView(minimum.withTopMargin(7))
+            form.addView(arrears)
+            Fields(debt, balance, apr, minimum, arrears)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "Monthly debt check-in" else "Correct this month's check-in")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Save all balances", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val balances = fields.mapNotNull { field ->
+                    val balance = parseMoneyCentsAllowZero(field.balance.text.toString()) ?: return@mapNotNull null
+                    val apr = parsePercentageBps(field.apr.text.toString()) ?: return@mapNotNull null
+                    val minimum = parseMoneyCents(field.minimum.text.toString()) ?: return@mapNotNull null
+                    DebtCheckInBalance(field.debt.id, balance, apr, minimum, field.arrears.isChecked)
+                }
+                if (balances.size != fields.size) {
+                    Toast.makeText(this, "Check every balance, interest rate, and minimum payment.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                button.isEnabled = false
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.recordDebtCheckIn(data.entity.id, month, balances)
+                            ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        dialog.dismiss()
+                        Toast.makeText(this@MainActivity, "Check-in saved. Your payoff path has been recalculated.", Toast.LENGTH_LONG).show()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        button.isEnabled = true
+                        Toast.makeText(this@MainActivity, "Couldn't save the complete check-in.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.92).toInt())
+    }
+
+    private fun showDebtSpendingScenario(data: MobileDashboard) {
+        val analysis = data.debtSpendingAnalysis()
+        if (!analysis.isReady || analysis.suggestions.isEmpty()) return
+        val form = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(14)) }
+        form.addView(label("Select categories you are willing to reduce. This is a preview—not an automatic cut.", 13f, Palette.muted))
+        val choices = analysis.suggestions.map { suggestion ->
+            CheckBox(this).apply {
+                text = "${suggestion.categoryName} · median ${formatZar(suggestion.medianMonthlySpendCents)}"
+                isChecked = true
+                tag = suggestion.categoryId
+                setTextColor(Palette.ink)
+                minimumHeight = dp(48)
+                form.addView(this)
+            } to suggestion
+        }
+        val reductionLabel = label("10% reduction", 15f, Palette.ink, bold = true)
+        form.addView(reductionLabel.withTopMargin(12))
+        val reduction = SeekBar(this).apply { max = 25; progress = 5 }
+        form.addView(reduction)
+        val preview = card(Palette.sage, radius = 18, padding = 14)
+        form.addView(preview.withTopMargin(10))
+        fun percentage() = reduction.progress + 5
+        fun extraCapacity(): Long = choices.filter { it.first.isChecked }.sumOf { (_, suggestion) ->
+            suggestion.medianMonthlySpendCents * percentage() / 100
+        }
+        fun refreshPreview() {
+            reductionLabel.text = "${percentage()}% reduction"
+            preview.removeAllViews()
+            val extra = extraCapacity()
+            val base = data.debtPlan()
+            val scenario = data.debtPlan(additionalMonthlyPaymentCents = extra)
+            preview.addView(label("Could free ${formatZar(extra)} per month", 17f, Palette.ink, bold = true))
+            if (base?.projection != null && scenario?.projection != null) {
+                val monthsSooner = (base.projection.payoffMonths - scenario.projection.payoffMonths).coerceAtLeast(0)
+                val interestSaved = (base.projection.totalInterestCents - scenario.projection.totalInterestCents).coerceAtLeast(0)
+                preview.addView(label("About $monthsSooner months sooner · ${formatZar(interestSaved)} less interest", 12f, Palette.inkSoft).withTopMargin(6))
+            }
+        }
+        choices.forEach { (box, _) -> box.setOnCheckedChangeListener { _, _ -> refreshPreview() } }
+        reduction.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) = refreshPreview()
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        refreshPreview()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Spending scenario")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Edit first selected budget", null)
+            .setNegativeButton("Keep current budgets", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = choices.firstOrNull { it.first.isChecked }?.second
+                if (selected == null) {
+                    Toast.makeText(this, "Select at least one category.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val budget = data.budgets.firstOrNull { it.categoryId == selected.categoryId } ?: return@setOnClickListener
+                val suggestedLimit = (budget.limitCents - selected.medianMonthlySpendCents * percentage() / 100).coerceAtLeast(1)
+                dialog.dismiss()
+                showBudgetEditor(data, budget, selected.categoryId, suggestedLimit)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun useDebtStrategy(data: MobileDashboard, strategy: DebtStrategy) {
+        val goal = when (strategy) {
+            DebtStrategy.AVALANCHE -> "lowest_cost"
+            DebtStrategy.SNOWBALL -> "quick_wins"
+            DebtStrategy.HYBRID -> "balanced"
+            else -> return
+        }
+        lifecycleScope.launch {
+            runCatching {
+                applicationState.collectorClient?.saveDebtPreferences(
+                    data.entity.id,
+                    goal,
+                    data.debtPreferences.consolidationAprBps,
+                    data.debtPreferences.consolidationTermMonths,
+                    data.debtPreferences.consolidationFeesCents,
+                    data.debtPreferences.reminderEnabled,
+                    data.debtPreferences.reminderDay,
+                    strategy.name.lowercase(Locale.ROOT),
+                ) ?: error("BudgetGuard is not configured.")
+            }.onSuccess { loadDashboard(keepContentVisible = true) }
+                .onFailure { Toast.makeText(this@MainActivity, "Couldn't change the approach.", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun strategyLabel(strategy: DebtStrategy): String = when (strategy) {
+        DebtStrategy.AVALANCHE -> "Avalanche · lowest interest"
+        DebtStrategy.SNOWBALL -> "Snowball · quickest wins"
+        DebtStrategy.HYBRID -> "Hybrid · quick win then interest"
+        DebtStrategy.CONSOLIDATION_REVIEW -> "Consolidation offer"
+        DebtStrategy.FORMAL_SUPPORT -> "Professional support"
     }
 
     private fun parsePercentageBps(value: String): Int? = runCatching {
@@ -1428,7 +1785,8 @@ class MainActivity : ComponentActivity() {
 
         shell.addView(label("NAVIGATE", 10f, Palette.inkMuted, bold = true).apply { letterSpacing = 0.1f }.withTopMargin(24))
         shell.addView(drawerNavItem("⌂", "Home", "Today's position", Screen.HOME, dialog).withTopMargin(10))
-        shell.addView(drawerNavItem("↓", "Debt freedom", if (data.debts.isEmpty()) "Build a repayment route" else "${data.debts.size} debts · ${formatZar(data.debts.sumOf { it.balanceCents })}", Screen.DEBT, dialog).withTopMargin(6))
+        val activeDebts = data.debts.filter(Debt::isActive)
+        shell.addView(drawerNavItem("↓", "Debt freedom", if (activeDebts.isEmpty()) "Build a repayment route" else "${activeDebts.size} debts · ${formatZar(activeDebts.sumOf { it.balanceCents })}", Screen.DEBT, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("↕", "Activity", if (data.transactionsNeedingReview > 0) "${data.transactionsNeedingReview} need review" else "Transactions are clear", Screen.TRANSACTIONS, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("▧", "Invoice inbox", if (data.invoicesNeedingReview > 0) "${data.invoicesNeedingReview} need review" else "Forward PDF expenses", Screen.INVOICES, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("▤", "Accounts", "Balances & SMS mappings", Screen.ACCOUNTS, dialog).withTopMargin(6))
@@ -1477,11 +1835,17 @@ class MainActivity : ComponentActivity() {
         setOnClickListener {
             selectedScreen = screen
             dialog.dismiss()
-            renderDashboard()
+            if (screen == Screen.DEBT && selectedPeriodStart != YearMonth.now().atDay(1).toString()) {
+                selectedPeriodStart = YearMonth.now().atDay(1).toString()
+                loadDashboard(keepContentVisible = true)
+            } else {
+                renderDashboard()
+            }
         }
     }
 
     private fun performSignOut() {
+        dashboard?.let { DebtReminderScheduler.sync(this, it.entity.id, false, it.debtPreferences.reminderDay, null) }
         lifecycleScope.launch {
             runCatching { applicationState.collectorClient?.signOut() }
             authMode = AuthMode.SIGN_IN
@@ -2063,7 +2427,12 @@ class MainActivity : ComponentActivity() {
             .longValueExact()
     }.getOrNull()?.takeIf { it > 0 }
 
-    private fun showBudgetEditor(data: MobileDashboard, budget: Budget?) {
+    private fun showBudgetEditor(
+        data: MobileDashboard,
+        budget: Budget?,
+        preselectedCategoryId: String? = null,
+        prefillLimitCents: Long? = null,
+    ) {
         val categories = availableBudgetCategories(data.categories, data.budgets, budget?.id)
         if (categories.isEmpty()) {
             if (budget == null) {
@@ -2083,14 +2452,16 @@ class MainActivity : ComponentActivity() {
         container.addView(label("CATEGORY", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(16))
         val categorySpinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, categories.map { it.name })
-            setSelection(budget?.categoryId?.let { id -> categories.indexOfFirst { it.id == id }.coerceAtLeast(0) } ?: 0)
+            val selectedId = preselectedCategoryId ?: budget?.categoryId
+            setSelection(selectedId?.let { id -> categories.indexOfFirst { it.id == id }.coerceAtLeast(0) } ?: 0)
             background = rounded(Palette.paper, 16, Palette.line)
             minimumHeight = dp(52)
             setPadding(dp(10), 0, dp(10), 0)
         }
         container.addView(categorySpinner.withTopMargin(5))
         val amount = input("Monthly limit in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
-            budget?.let { setText(BigDecimal.valueOf(it.limitCents, 2).toPlainString()) }
+            val cents = prefillLimitCents ?: budget?.limitCents
+            cents?.let { setText(BigDecimal.valueOf(it, 2).toPlainString()) }
         }
         container.addView(amount.withTopMargin(10))
         container.addView(label(

@@ -52,8 +52,8 @@ android {
         applicationId = "app.budgetguard.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.5.4"
+        versionCode = 16
+        versionName = "0.6.0"
 
         buildConfigField("String", "SUPABASE_URL", supabaseUrl.asBuildConfigString())
         buildConfigField(
