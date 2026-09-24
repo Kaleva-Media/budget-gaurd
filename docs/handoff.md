@@ -1,11 +1,11 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-23. Production source baseline: `88c5b3a` (`main`).
+Updated: 2026-09-24. Production source baseline: `2244edb` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-09-23 debt coaching implementation candidate**: The `codex/debt-coaching`
+- **2026-09-24 debt coaching deployment**: The `codex/debt-coaching`
   branch turns the existing recommendation into a monthly action plan with detailed
   projections, actual-versus-forecast chart data, payoff events, 25/50/75/100%
   milestones, and comparable avalanche/snowball/hybrid outcomes in both Kotlin and
@@ -19,10 +19,24 @@ This document records repository state and historical observations, not a fresh 
   `20260923154242_debt_strategy_selection.sql` add the owner/entity-scoped
   check-in tables, reminder preferences, soft-close state, atomic security-invoker
   RPC, and security-invoker spending view with explicit grants. Local verification
-  so far: 33 TypeScript domain tests, TypeScript checks, production web build,
-  Android parser/app unit tests, a fresh full migration replay, and all 16 pgTAP
-  files (104 tests). Production deployment and installed-device behaviour are not
-  yet verified. Android candidate version is `0.6.0` (code 16).
+  passed 33 TypeScript domain tests, TypeScript checks, production web build,
+  Android parser/app unit tests and lint, debug APK assembly, a fresh full
+  migration replay, all 16 pgTAP files (104 tests), local schema lint, email and
+  Edge Function checks, and 14 deployment-controller tests. PR
+  [#23](https://github.com/Kaleva-Media/budget-gaurd/pull/23) merged as `2244edb`.
+  Main CI run
+  [35965700883](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35965700883)
+  passed every suite and the required `all-tests` gate. Production deployment
+  run [35965888965](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/35965888965)
+  restore-tested its backup, applied both pending migrations, activated the exact
+  tested revision, and passed controller smoke checks. The public version endpoint
+  reports `2244edb`; unauthenticated REST reads of the check-in, check-in balance,
+  and spending-history datasets return `401`. The owner-authorized temporary
+  review exception was restored immediately after merge; main again requires one
+  independent review, including code-owner and last-push approval. Android version
+  is `0.6.0` (code 16); the debug APK SHA-256 is
+  `b734666739fedfc4428ffe8de2de6d47e1dec15310d492882c12251e3e415073`.
+  Installed-device behaviour remains unverified.
 
 - **2026-09-23 debt management deployment**: Android now has a separate
   Debt freedom destination with owner/entity-scoped debt onboarding, balances,
