@@ -15,13 +15,19 @@ data class Debt(
     val dueDay: Int?,
     val secured: Boolean,
     val inArrears: Boolean,
+    val isActive: Boolean = true,
+    val closedReason: String? = null,
+    val closedAt: String? = null,
 )
 
 data class DebtPreferences(
     val goal: String = "balanced",
+    val preferredStrategy: String = "recommended",
     val consolidationAprBps: Int? = null,
     val consolidationTermMonths: Int? = null,
     val consolidationFeesCents: Long = 0,
+    val reminderEnabled: Boolean = false,
+    val reminderDay: Int = 28,
 )
 
 enum class DebtStrategy {
@@ -35,7 +41,64 @@ enum class DebtStrategy {
 data class DebtProjection(
     val payoffMonths: Int,
     val totalInterestCents: Long,
+    val monthlyPaymentCents: Long,
+    val trajectory: List<DebtTrajectoryPoint>,
+    val payoffEvents: List<DebtPayoffEvent>,
+    val milestones: List<DebtMilestone>,
 )
+
+data class DebtTrajectoryPoint(
+    val month: Int,
+    val remainingBalanceCents: Long,
+    val cumulativeInterestCents: Long,
+    val targetDebtId: String?,
+    val targetDebtName: String?,
+)
+
+data class DebtPayoffEvent(val debtId: String, val debtName: String, val month: Int)
+
+data class DebtMilestone(val percentage: Int, val month: Int, val remainingBalanceCents: Long)
+
+data class DebtStrategyComparison(val strategy: DebtStrategy, val projection: DebtProjection?)
+
+data class DebtCheckIn(
+    val id: String,
+    val month: String,
+    val recordedOn: String,
+    val balances: List<DebtCheckInBalance>,
+) {
+    val totalBalanceCents: Long get() = balances.sumOf(DebtCheckInBalance::balanceCents)
+}
+
+data class DebtCheckInBalance(
+    val debtId: String,
+    val balanceCents: Long,
+    val annualInterestBps: Int,
+    val minimumPaymentCents: Long,
+    val inArrears: Boolean,
+)
+
+data class DebtSpendingMonth(
+    val month: String,
+    val categoryId: String?,
+    val categoryName: String?,
+    val systemKey: String?,
+    val spentCents: Long,
+)
+
+data class DebtSpendingSuggestion(
+    val categoryId: String,
+    val categoryName: String,
+    val medianMonthlySpendCents: Long,
+)
+
+data class DebtSpendingAnalysis(
+    val monthCount: Int,
+    val coveragePercentage: Int,
+    val suggestions: List<DebtSpendingSuggestion>,
+) {
+    val isReady: Boolean get() = monthCount >= 2 && coveragePercentage >= 75
+}
 
 data class DebtPlan(
     val strategy: DebtStrategy,
@@ -49,6 +112,7 @@ data class DebtPlan(
     val extraPaymentCents: Long,
     val payoffOrder: List<Debt>,
     val projection: DebtProjection?,
+    val comparisons: List<DebtStrategyComparison>,
     val warnings: List<String>,
 )
 
@@ -57,8 +121,40 @@ private data class SimulationDebt(
     var balanceCents: Long,
 )
 
-fun MobileDashboard.debtPlan(): DebtPlan? {
-    if (debts.isEmpty()) return null
+fun MobileDashboard.debtSpendingAnalysis(): DebtSpendingAnalysis {
+    val months = debtSpendingHistory.map(DebtSpendingMonth::month).distinct().sorted()
+    val total = debtSpendingHistory.sumOf(DebtSpendingMonth::spentCents)
+    val categorised = debtSpendingHistory.filter { it.categoryId != null }.sumOf(DebtSpendingMonth::spentCents)
+    val allowedCategories = budgets.mapTo(mutableSetOf(), Budget::categoryId)
+    val excludedSystemKeys = setOf("debt", "debt_payment", "savings", "transfer", "income")
+    val suggestions = debtSpendingHistory
+        .filter { it.categoryId != null && it.categoryId in allowedCategories && it.systemKey !in excludedSystemKeys }
+        .groupBy { it.categoryId!! }
+        .mapNotNull { (categoryId, rows) ->
+            val name = rows.firstNotNullOfOrNull(DebtSpendingMonth::categoryName) ?: return@mapNotNull null
+            val byMonth = rows.associate { it.month to it.spentCents }
+            val values = months.map { byMonth[it] ?: 0 }.sorted()
+            if (values.isEmpty()) return@mapNotNull null
+            val median = if (values.size % 2 == 1) values[values.size / 2] else {
+                (values[values.size / 2 - 1] + values[values.size / 2]) / 2
+            }
+            DebtSpendingSuggestion(categoryId, name, median)
+        }
+        .filter { it.medianMonthlySpendCents > 0 }
+        .sortedByDescending(DebtSpendingSuggestion::medianMonthlySpendCents)
+    return DebtSpendingAnalysis(
+        monthCount = months.size,
+        coveragePercentage = if (total <= 0) 0 else ((categorised * 100) / total).coerceIn(0, 100).toInt(),
+        suggestions = suggestions,
+    )
+}
+
+fun MobileDashboard.debtPlan(
+    strategyOverride: DebtStrategy? = null,
+    additionalMonthlyPaymentCents: Long = 0,
+): DebtPlan? {
+    val activeDebts = debts.filter { it.isActive && it.balanceCents > 0 }
+    if (activeDebts.isEmpty()) return null
 
     val income = plannedItems
         .filter { it.direction == "income" }
@@ -77,19 +173,21 @@ fun MobileDashboard.debtPlan(): DebtPlan? {
     }
     val uncategorisedPlan = livingItems.filter { it.categoryId == null }.sumOf(PlannedItem::plannedCents)
     val livingPlan = categoryPlan + uncategorisedPlan
-    val availableForDebt = income - livingPlan
-    val enteredMinimums = debts.sumOf(Debt::minimumPaymentCents)
+    val availableForDebt = runCatching {
+        Math.addExact(income - livingPlan, additionalMonthlyPaymentCents.coerceAtLeast(0))
+    }.getOrElse { return null }
+    val enteredMinimums = activeDebts.sumOf(Debt::minimumPaymentCents)
     val plannedDebtPayments = plannedItems
         .filter { it.direction == "expense" && it.kind == "debt_payment" }
         .sumOf(PlannedItem::plannedCents)
     val extra = (availableForDebt - enteredMinimums).coerceAtLeast(0)
-    val totalBalance = debts.sumOf(Debt::balanceCents)
+    val totalBalance = activeDebts.sumOf(Debt::balanceCents)
     val warnings = mutableListOf<String>()
 
     if (plannedItems.none { it.direction == "income" }) {
         warnings += "Add your monthly income to the period plan so this estimate can use a realistic repayment capacity."
     }
-    if (debts.any(Debt::secured)) {
+    if (activeDebts.any(Debt::secured)) {
         warnings += "Secured debts can put an asset at risk. Get professional advice before changing those payments."
     }
     if (plannedDebtPayments > enteredMinimums) {
@@ -104,8 +202,8 @@ fun MobileDashboard.debtPlan(): DebtPlan? {
     } else {
         "Professional debt restructuring"
     }
-    if (debts.any(Debt::inArrears) || availableForDebt < enteredMinimums) {
-        val reason = if (debts.any(Debt::inArrears)) {
+    if (activeDebts.any(Debt::inArrears) || availableForDebt < enteredMinimums) {
+        val reason = if (activeDebts.any(Debt::inArrears)) {
             if (entity.kind == "personal") {
                 "At least one debt is in arrears. A registered counsellor can assess the full position and contact credit providers through the proper process."
             } else {
@@ -124,13 +222,14 @@ fun MobileDashboard.debtPlan(): DebtPlan? {
             monthlyLivingPlanCents = livingPlan,
             availableForDebtCents = availableForDebt,
             extraPaymentCents = 0,
-            payoffOrder = debts.sortedByDescending(Debt::annualInterestBps),
+            payoffOrder = activeDebts.sortedByDescending(Debt::annualInterestBps),
             projection = null,
+            comparisons = emptyList(),
             warnings = warnings,
         )
     }
 
-    val avalancheOrder = debts.sortedWith(
+    val avalancheOrder = activeDebts.sortedWith(
         compareByDescending<Debt> { it.annualInterestBps }.thenBy { it.balanceCents },
     )
     val avalanche = simulateDebtPayoff(avalancheOrder, availableForDebt)
@@ -142,18 +241,27 @@ fun MobileDashboard.debtPlan(): DebtPlan? {
         consolidationPayment != null && consolidationPayment <= availableForDebt &&
         avalancheCost - consolidationCost >= maxOf(10_000L, avalancheCost / 20)
 
-    val strategy = when {
+    val recommendedStrategy = when {
         avalanche == null -> DebtStrategy.FORMAL_SUPPORT
-        consolidationWins -> DebtStrategy.CONSOLIDATION_REVIEW
+        consolidationWins && debtPreferences.preferredStrategy == "recommended" -> DebtStrategy.CONSOLIDATION_REVIEW
         debtPreferences.goal == "quick_wins" -> DebtStrategy.SNOWBALL
-        debtPreferences.goal == "balanced" && debts.size > 1 -> DebtStrategy.HYBRID
+        debtPreferences.goal == "balanced" && activeDebts.size > 1 -> DebtStrategy.HYBRID
         else -> DebtStrategy.AVALANCHE
     }
+    val storedStrategy = when (debtPreferences.preferredStrategy) {
+        "avalanche" -> DebtStrategy.AVALANCHE
+        "snowball" -> DebtStrategy.SNOWBALL
+        "hybrid" -> DebtStrategy.HYBRID
+        else -> null
+    }
+    val strategy = (strategyOverride ?: storedStrategy)?.takeIf {
+        it == DebtStrategy.AVALANCHE || it == DebtStrategy.SNOWBALL || it == DebtStrategy.HYBRID
+    } ?: recommendedStrategy
     val order = when (strategy) {
-        DebtStrategy.SNOWBALL -> debts.sortedWith(compareBy<Debt> { it.balanceCents }.thenByDescending { it.annualInterestBps })
+        DebtStrategy.SNOWBALL -> activeDebts.sortedWith(compareBy<Debt> { it.balanceCents }.thenByDescending { it.annualInterestBps })
         DebtStrategy.HYBRID -> {
-            val first = debts.minBy(Debt::balanceCents)
-            listOf(first) + debts.filterNot { it.id == first.id }
+            val first = activeDebts.minBy(Debt::balanceCents)
+            listOf(first) + activeDebts.filterNot { it.id == first.id }
                 .sortedWith(compareByDescending<Debt> { it.annualInterestBps }.thenBy { it.balanceCents })
         }
         else -> avalancheOrder
@@ -193,16 +301,29 @@ fun MobileDashboard.debtPlan(): DebtPlan? {
         extraPaymentCents = extra,
         payoffOrder = order,
         projection = projection,
+        comparisons = strategyComparisons(activeDebts, availableForDebt, debtPreferences),
         warnings = warnings,
     )
 }
 
 internal fun simulateDebtPayoff(order: List<Debt>, monthlyBudgetCents: Long): DebtProjection? {
-    if (order.isEmpty()) return DebtProjection(0, 0)
+    if (order.isEmpty()) return DebtProjection(
+        payoffMonths = 0,
+        totalInterestCents = 0,
+        monthlyPaymentCents = 0,
+        trajectory = listOf(DebtTrajectoryPoint(0, 0, 0, null, null)),
+        payoffEvents = emptyList(),
+        milestones = emptyList(),
+    )
     if (monthlyBudgetCents < order.sumOf(Debt::minimumPaymentCents)) return null
 
     val states = order.map { SimulationDebt(it, it.balanceCents) }
+    val originalBalance = order.sumOf(Debt::balanceCents)
     var totalInterest = 0L
+    val trajectory = mutableListOf(DebtTrajectoryPoint(0, originalBalance, 0, order.firstOrNull()?.id, order.firstOrNull()?.name))
+    val payoffEvents = mutableListOf<DebtPayoffEvent>()
+    val milestones = mutableListOf<DebtMilestone>()
+    val reachedMilestones = mutableSetOf<Int>()
     for (month in 1..600) {
         for (state in states.filter { it.balanceCents > 0 }) {
             val interest = runCatching {
@@ -218,6 +339,7 @@ internal fun simulateDebtPayoff(order: List<Debt>, monthlyBudgetCents: Long): De
         }
 
         var available = monthlyBudgetCents
+        val beforePayment = states.associate { it.debt.id to it.balanceCents }
         states.filter { it.balanceCents > 0 }.forEach { state ->
             val payment = minOf(state.debt.minimumPaymentCents, state.balanceCents, available)
             state.balanceCents -= payment
@@ -230,9 +352,53 @@ internal fun simulateDebtPayoff(order: List<Debt>, monthlyBudgetCents: Long): De
             available -= payment
         }
 
-        if (states.all { it.balanceCents <= 0 }) return DebtProjection(month, totalInterest)
+        states.forEach { state ->
+            if ((beforePayment[state.debt.id] ?: 0) > 0 && state.balanceCents <= 0) {
+                payoffEvents += DebtPayoffEvent(state.debt.id, state.debt.name, month)
+            }
+        }
+        val remaining = states.sumOf { it.balanceCents.coerceAtLeast(0) }
+        val target = states.firstOrNull { it.balanceCents > 0 }?.debt
+        trajectory += DebtTrajectoryPoint(month, remaining, totalInterest, target?.id, target?.name)
+        val repaidPercentage = if (originalBalance <= 0) 100 else {
+            (((originalBalance - remaining).toDouble() / originalBalance.toDouble()) * 100).toInt()
+        }
+        listOf(25, 50, 75, 100).forEach { percentage ->
+            if (repaidPercentage >= percentage && reachedMilestones.add(percentage)) {
+                milestones += DebtMilestone(percentage, month, remaining)
+            }
+        }
+
+        if (states.all { it.balanceCents <= 0 }) return DebtProjection(
+            payoffMonths = month,
+            totalInterestCents = totalInterest,
+            monthlyPaymentCents = monthlyBudgetCents,
+            trajectory = trajectory,
+            payoffEvents = payoffEvents,
+            milestones = milestones,
+        )
     }
     return null
+}
+
+internal fun strategyComparisons(
+    debts: List<Debt>,
+    monthlyBudgetCents: Long,
+    preferences: DebtPreferences,
+): List<DebtStrategyComparison> {
+    val avalanche = debts.sortedWith(compareByDescending<Debt> { it.annualInterestBps }.thenBy { it.balanceCents })
+    val snowball = debts.sortedWith(compareBy<Debt> { it.balanceCents }.thenByDescending { it.annualInterestBps })
+    val smallest = debts.minByOrNull(Debt::balanceCents)
+    val hybrid = if (smallest == null) emptyList() else listOf(smallest) + debts.filterNot { it.id == smallest.id }
+        .sortedWith(compareByDescending<Debt> { it.annualInterestBps }.thenBy { it.balanceCents })
+    return buildList {
+        add(DebtStrategyComparison(DebtStrategy.AVALANCHE, simulateDebtPayoff(avalanche, monthlyBudgetCents)))
+        add(DebtStrategyComparison(DebtStrategy.SNOWBALL, simulateDebtPayoff(snowball, monthlyBudgetCents)))
+        add(DebtStrategyComparison(DebtStrategy.HYBRID, simulateDebtPayoff(hybrid, monthlyBudgetCents)))
+        consolidationProjection(debts.sumOf(Debt::balanceCents), preferences)?.let {
+            add(DebtStrategyComparison(DebtStrategy.CONSOLIDATION_REVIEW, it))
+        }
+    }
 }
 
 private fun consolidationMonthlyPayment(totalBalanceCents: Long, preferences: DebtPreferences): Long? {
@@ -259,7 +425,30 @@ private fun consolidationProjection(totalBalanceCents: Long, preferences: DebtPr
             preferences.consolidationFeesCents,
         )
     }.getOrNull() ?: return null
-    return DebtProjection(months, (totalCost - totalBalanceCents).coerceAtLeast(0))
+    val interest = (totalCost - totalBalanceCents).coerceAtLeast(0)
+    return DebtProjection(
+        payoffMonths = months,
+        totalInterestCents = interest,
+        monthlyPaymentCents = payment,
+        trajectory = (0..months).map { month ->
+            val progress = month.toDouble() / months.toDouble()
+            DebtTrajectoryPoint(
+                month,
+                (totalBalanceCents * (1.0 - progress)).toLong().coerceAtLeast(0),
+                (interest * progress).toLong().coerceAtLeast(0),
+                null,
+                "Consolidation loan",
+            )
+        },
+        payoffEvents = listOf(DebtPayoffEvent("consolidation", "Consolidation loan", months)),
+        milestones = listOf(25, 50, 75, 100).map { percentage ->
+            DebtMilestone(
+                percentage,
+                maxOf(1, kotlin.math.ceil(months * percentage / 100.0).toInt()),
+                (totalBalanceCents * (1.0 - percentage / 100.0)).toLong().coerceAtLeast(0),
+            )
+        },
+    )
 }
 
 private fun safeAdd(left: Long, right: Long): Long? =

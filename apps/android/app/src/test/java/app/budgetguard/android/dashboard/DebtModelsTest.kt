@@ -107,6 +107,22 @@ class DebtModelsTest {
     }
 
     @Test
+    fun `an explicit approach overrides a qualifying consolidation recommendation`() {
+        val plan = dashboard(
+            debts = listOf(card, loan),
+            preferences = DebtPreferences(
+                goal = "lowest_cost",
+                preferredStrategy = "avalanche",
+                consolidationAprBps = 0,
+                consolidationTermMonths = 12,
+            ),
+            monthlyIncomeCents = 1_150_000,
+        ).debtPlan()!!
+
+        assertEquals(DebtStrategy.AVALANCHE, plan.strategy)
+    }
+
+    @Test
     fun `simulation rejects payments below combined minimums`() {
         assertNull(simulateDebtPayoff(listOf(card, loan), 100_000))
     }
@@ -120,6 +136,40 @@ class DebtModelsTest {
 
         assertEquals(1, oneMonth?.payoffMonths)
         assertEquals(10_000L, oneMonth?.totalInterestCents)
+        assertEquals(0L, oneMonth?.trajectory?.last()?.remainingBalanceCents)
+        assertEquals("card", oneMonth?.payoffEvents?.single()?.debtId)
+    }
+
+    @Test
+    fun `plan includes milestones comparisons and a monthly target`() {
+        val plan = dashboard(debts = listOf(loan, card), preferences = DebtPreferences(goal = "lowest_cost")).debtPlan()!!
+
+        assertEquals(listOf(25, 50, 75, 100), plan.projection?.milestones?.map(DebtMilestone::percentage))
+        assertEquals(listOf(DebtStrategy.AVALANCHE, DebtStrategy.SNOWBALL, DebtStrategy.HYBRID), plan.comparisons.map(DebtStrategyComparison::strategy))
+        assertEquals("card", plan.projection?.trajectory?.get(1)?.targetDebtId)
+    }
+
+    @Test
+    fun `spending suggestions require two months and enough categorised coverage`() {
+        val base = dashboard(
+            debts = listOf(card),
+            budgets = listOf(
+                Budget("food-budget", "groceries", 300_000, 0, 0),
+                Budget("debt-budget", "debt-category", 100_000, 0, 0),
+            ),
+        )
+        val data = base.copy(debtSpendingHistory = listOf(
+            DebtSpendingMonth("2026-07-01", "groceries", "Groceries", null, 200_000),
+            DebtSpendingMonth("2026-07-01", null, null, null, 20_000),
+            DebtSpendingMonth("2026-08-01", "groceries", "Groceries", null, 300_000),
+            DebtSpendingMonth("2026-08-01", null, null, null, 30_000),
+            DebtSpendingMonth("2026-08-01", "debt-category", "Debt", "debt", 50_000),
+        ))
+
+        val analysis = data.debtSpendingAnalysis()
+        assertTrue(analysis.isReady)
+        assertEquals(91, analysis.coveragePercentage)
+        assertEquals(250_000L, analysis.suggestions.single().medianMonthlySpendCents)
     }
 
     @Test

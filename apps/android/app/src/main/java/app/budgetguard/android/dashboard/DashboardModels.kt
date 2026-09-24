@@ -22,6 +22,8 @@ data class MobileDashboard(
     val invoices: List<Invoice>,
     val debts: List<Debt> = emptyList(),
     val debtPreferences: DebtPreferences = DebtPreferences(),
+    val debtCheckIns: List<DebtCheckIn> = emptyList(),
+    val debtSpendingHistory: List<DebtSpendingMonth> = emptyList(),
 ) {
     val transactionsNeedingReview: Int
         get() = transactions.count { it.needsReview || (it.amountCents < 0 && it.categoryId == null) }
@@ -101,6 +103,7 @@ data class Category(
     val name: String,
     val colour: String,
     val icon: String,
+    val systemKey: String? = null,
 )
 
 data class Budget(

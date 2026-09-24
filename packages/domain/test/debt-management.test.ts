@@ -78,15 +78,46 @@ describe("debt strategy recommendation", () => {
     expect(plan.strategy).toBe("consolidation_review");
   });
 
+  test("respects an explicit payoff approach even when consolidation qualifies", () => {
+    const base = input();
+    const plan = recommendDebtStrategy(input({
+      plannedItems: base.plannedItems.map((item) => item.direction === "income" ? { ...item, plannedCents: 1_150_000 } : item),
+      preferences: {
+        goal: "lowest_cost",
+        preferredStrategy: "avalanche",
+        consolidationAprBps: 0,
+        consolidationTermMonths: 12,
+        consolidationFeesCents: 0,
+      },
+    }))!;
+    expect(plan.strategy).toBe("avalanche");
+  });
+
   test("does not simulate below combined minimums", () => {
     expect(simulateDebtPayoff([card, loan], 100_000)).toBeNull();
   });
 
   test("converts annual basis points to monthly interest", () => {
-    expect(simulateDebtPayoff([{ ...card, annualInterestBps: 1_200, minimumPaymentCents: 1 }], 1_010_000)).toEqual({
-      payoffMonths: 1,
-      totalInterestCents: 10_000,
-    });
+    const projection = simulateDebtPayoff([{ ...card, annualInterestBps: 1_200, minimumPaymentCents: 1 }], 1_010_000);
+    expect(projection?.payoffMonths).toBe(1);
+    expect(projection?.totalInterestCents).toBe(10_000);
+    expect(projection?.trajectory.at(-1)?.remainingBalanceCents).toBe(0);
+    expect(projection?.payoffEvents).toEqual([{ debtId: "card", debtName: "Credit card", month: 1 }]);
+  });
+
+  test("returns a month-by-month plan with milestones and comparisons", () => {
+    const plan = recommendDebtStrategy(input())!;
+    expect(plan.projection?.trajectory[0]?.remainingBalanceCents).toBe(3_000_000);
+    expect(plan.projection?.milestones.map((milestone) => milestone.percentage)).toEqual([25, 50, 75, 100]);
+    expect(plan.projection?.payoffEvents.map((event) => event.debtId)).toEqual(["card", "loan"]);
+    expect(plan.comparisons.map((comparison) => comparison.strategy)).toEqual(["avalanche", "snowball", "hybrid"]);
+  });
+
+  test("a spending scenario increases capacity without changing stored budgets", () => {
+    const base = recommendDebtStrategy(input())!;
+    const scenario = recommendDebtStrategy(input({ additionalMonthlyPaymentCents: 50_000 }))!;
+    expect(scenario.availableForDebtCents).toBe(base.availableForDebtCents + 50_000);
+    expect(scenario.projection!.payoffMonths).toBeLessThan(base.projection!.payoffMonths);
   });
 
   test("refuses a projection that would exceed safe integer cents", () => {
