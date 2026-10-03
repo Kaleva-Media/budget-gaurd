@@ -736,6 +736,12 @@ class MainActivity : ComponentActivity() {
         val prompt = input("Ask about this cycle").apply {
             imeOptions = EditorInfo.IME_ACTION_SEND
             setSingleLine(true)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(56),
+            )
         }
         val send = action("Ask locally", primary = true)
         fun submit() {
@@ -1802,6 +1808,9 @@ class MainActivity : ComponentActivity() {
         workspace.addView(moneyLine("Categories", data.categories.size.toString(), Palette.ink))
         workspace.addView(divider().withVerticalMargin(12))
         workspace.addView(moneyLine("Entities", data.entities.size.toString(), Palette.ink))
+        workspace.addView(action("Change entity & cycle date", primary = false).apply {
+            setOnClickListener { showEntityEditor(data.entity) }
+        }.withTopMargin(16))
         content.addView(workspace.withTopMargin(12))
         return content
     }
@@ -1899,7 +1908,17 @@ class MainActivity : ComponentActivity() {
             }
         }.withTopMargin(18))
 
-        dialog.setContentView(shell)
+        val scrollableDrawer = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            setBackgroundColor(Palette.ink)
+            addView(shell, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
+
+        dialog.setContentView(scrollableDrawer)
         dialog.window?.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             setDimAmount(0.48f)
@@ -1911,7 +1930,7 @@ class MainActivity : ComponentActivity() {
             setWindowAnimations(R.style.BudgetGuardDrawerAnimation)
             setLayout(minOf((resources.displayMetrics.widthPixels * 0.88f).toInt(), dp(380)), ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        applySystemInsets(shell)
+        applySystemInsets(scrollableDrawer)
     }
 
     private fun drawerNavItem(icon: String, title: String, detail: String, screen: Screen, dialog: Dialog): View = horizontal().apply {

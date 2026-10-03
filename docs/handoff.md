@@ -6,6 +6,17 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-03 Android drawer and control usability source fix**: The full-height Android
+  navigation drawer is now hosted in a fill-viewport `ScrollView`, so navigation,
+  privacy text, and sign-out remain reachable on shorter displays and with larger
+  font scaling. System-bar insets are applied to the scrolling container. The
+  assistant composer now has an explicit 56dp touch/input height and balanced
+  vertical padding. Profile's Workspace card now exposes a clear “Change entity &
+  cycle date” action that opens the existing owner-scoped entity editor. Android
+  version advances to `0.6.2` (code 18) so the eventual APK installs as an update.
+  This is source-only until merged and explicitly deployed; installed-device
+  behaviour is not yet verified.
+
 - **2026-10-03 pay-cycle boundaries and local investigation deployment**:
   PR [#25](https://github.com/Kaleva-Media/budget-gaurd/pull/25) adds a
   per-workspace budget-cycle day (1–28). The existing
