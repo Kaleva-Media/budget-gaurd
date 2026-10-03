@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -110,6 +111,7 @@ class MainActivity : ComponentActivity() {
     private var planSearchQuery = ""
     private var expenseOrder = ExpenseOrder.NAME
     private val assistantMessages = mutableListOf<AssistantMessage>()
+    private var scrollAssistantToBottom = false
 
     private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         updateCollectorWidgets()
@@ -137,6 +139,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra("open_debt_freedom", false) == true) selectedScreen = Screen.DEBT
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -435,6 +438,10 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setInsetContentView(root)
+        if (selectedScreen == Screen.ASSISTANT && scrollAssistantToBottom) {
+            scrollAssistantToBottom = false
+            scroller.post { scroller.fullScroll(View.FOCUS_DOWN) }
+        }
         updateCollectorWidgets()
     }
 
@@ -736,6 +743,19 @@ class MainActivity : ComponentActivity() {
         val prompt = input("Ask about this cycle").apply {
             imeOptions = EditorInfo.IME_ACTION_SEND
             setSingleLine(true)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(56),
+            )
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    postDelayed({
+                        requestRectangleOnScreen(Rect(0, 0, width, height), true)
+                    }, 250)
+                }
+            }
         }
         val send = action("Ask locally", primary = true)
         fun submit() {
@@ -760,6 +780,7 @@ class MainActivity : ComponentActivity() {
         assistantMessages += AssistantMessage(true, question)
         assistantMessages += AssistantMessage(false, LocalBudgetInvestigator.answer(data, question))
         selectedScreen = Screen.ASSISTANT
+        scrollAssistantToBottom = true
         renderDashboard()
     }
 
@@ -1802,6 +1823,9 @@ class MainActivity : ComponentActivity() {
         workspace.addView(moneyLine("Categories", data.categories.size.toString(), Palette.ink))
         workspace.addView(divider().withVerticalMargin(12))
         workspace.addView(moneyLine("Entities", data.entities.size.toString(), Palette.ink))
+        workspace.addView(action("Change entity & cycle date", primary = false).apply {
+            setOnClickListener { showEntityEditor(data.entity) }
+        }.withTopMargin(16))
         content.addView(workspace.withTopMargin(12))
         return content
     }
@@ -1899,7 +1923,17 @@ class MainActivity : ComponentActivity() {
             }
         }.withTopMargin(18))
 
-        dialog.setContentView(shell)
+        val scrollableDrawer = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            setBackgroundColor(Palette.ink)
+            addView(shell, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
+
+        dialog.setContentView(scrollableDrawer)
         dialog.window?.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             setDimAmount(0.48f)
@@ -1911,7 +1945,7 @@ class MainActivity : ComponentActivity() {
             setWindowAnimations(R.style.BudgetGuardDrawerAnimation)
             setLayout(minOf((resources.displayMetrics.widthPixels * 0.88f).toInt(), dp(380)), ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        applySystemInsets(shell)
+        applySystemInsets(scrollableDrawer)
     }
 
     private fun drawerNavItem(icon: String, title: String, detail: String, screen: Screen, dialog: Dialog): View = horizontal().apply {
@@ -3393,7 +3427,13 @@ class MainActivity : ComponentActivity() {
         val baseBottom = view.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(view) { target, windowInsets ->
             val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            target.setPadding(baseLeft + bars.left, baseTop + bars.top, baseRight + bars.right, baseBottom + bars.bottom)
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+            target.setPadding(
+                baseLeft + bars.left,
+                baseTop + bars.top,
+                baseRight + bars.right,
+                baseBottom + maxOf(bars.bottom, ime.bottom),
+            )
             windowInsets
         }
         ViewCompat.requestApplyInsets(view)
