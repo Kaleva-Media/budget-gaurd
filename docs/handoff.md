@@ -1,6 +1,7 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-03. Production source baseline: `c5640ca` (`main`).
+Updated: 2026-10-03. Production application baseline: `c5640ca` (`main`);
+later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
@@ -26,9 +27,10 @@ This document records repository state and historical observations, not a fresh 
   passed every suite and the required `all-tests` gate. Production deployment run
   [37117540878](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37117540878)
   restore-tested its backup, applied the one pending migration, activated the exact
-  tested revision, and passed controller smoke checks. The public version endpoint
-  reports `c5640ca`; unauthenticated reads of `budget_cycle_progress` and the new
-  entity cycle field return `401`. Android version is `0.6.1` (code 17); the
+  tested revision, and passed controller smoke checks. A subsequent handoff-only
+  main revision deployed with zero pending migrations. The public version endpoint
+  tracks the latest main revision; unauthenticated reads of `budget_cycle_progress`
+  and the new entity cycle field return `401`. Android version is `0.6.1` (code 17); the
   configured debug APK SHA-256 is
   `3583878bdae265afe5531f98b4d3aec88b17cb707050b0a1e94ad39b2ac13494`.
   Installed-device behaviour remains unverified. At the owner's explicit request,
