@@ -11,10 +11,9 @@ migrations, deployment code, permissions or production configuration.
 3. Run relevant checks locally; state what could not run. Never skip a failing
    suite, weaken a test or disable a guard just to merge.
 4. Open a PR with test evidence, risk, deployment impact and rollback instructions.
-5. Wait for `all-tests` on the **latest** commit, an up-to-date branch, resolved
-   conversations and one independent approving reviewer, including required
-   code-owner approval where applicable. New pushes dismiss old
-   approvals. The last pusher must not provide the qualifying approval.
+5. Wait for `all-tests` on the **latest** commit, an up-to-date branch and
+   resolved conversations. Independent and code-owner review remain encouraged,
+   especially for migrations and security changes, but are not merge gates.
 6. Squash merge. No direct pushes, force pushes, self-approval, administrator
    bypasses or temporary removal of protections. Agents must not change repository
    governance without an explicit owner request for that task.
@@ -57,8 +56,8 @@ without executing historical SQL. Do not modify the baseline.
 Automated migrations must be additive and compatible with the previous app
 version. Drops, truncation, row deletion, contract replacement, column changes,
 RLS weakening, anonymous grants and nontransactional SQL fail the conservative
-policy check. This is **not** a SQL sandbox or a proof of compatibility: reviewer
-judgment and ownership tests remain mandatory. Changes rejected by policy need a
+policy check. This is **not** a SQL sandbox or a proof of compatibility: explicit
+engineering judgment and ownership tests remain mandatory. Changes rejected by policy need a
 separate owner-approved maintenance plan; do not work around the scanner.
 
 Never run production `db reset`, ad-hoc migration SQL, provisioning, a down
@@ -104,11 +103,11 @@ and use Wrangler rollback; never rotate invoice signing secrets during rollback.
 
 | Requirement | Enforcement |
 | --- | --- |
-| Latest tests and independent review | GitHub protected `main`, Actions-bound `all-tests`, strict freshness, stale/last-push review rules, CODEOWNERS |
+| Latest tests | GitHub protected `main`, Actions-bound `all-tests`, strict freshness and resolved conversations |
 | No administrator merge bypass | Branch protection applies to administrators |
 | Main-only deployment credentials | Protected GitHub environments, workflow main/event checks, server SHA/CI check |
 | Backup before migration | Server controller's successful dump + restore test before ledger/schema mutation |
-| Applied SQL immutable/additive | CI policy, baseline checksums, private server ledger, independent review |
+| Applied SQL immutable/additive | CI policy, baseline checksums, private server ledger and database tests |
 | Private DB and invoices | Server checks ports/networks/Nginx/RLS/views/bucket; database denial tests |
 | Code rollback | Retained releases, failed-health recovery, approved rollback workflow |
 | No arbitrary production shell for CI | Root-owned authorized_keys/controller, forced command and narrow sudo rule |
@@ -118,12 +117,11 @@ should receive a **non-admin write-only GitHub identity**, not the owner's admin
 identity, general production SSH, service-role key or Docker socket. Repository
 owners can still edit governance settings; review that separately. The current
 desktop GitHub connection is the owner account, so provisioning a separate agent
-identity remains an owner action. Never impersonate an independent reviewer.
+identity remains an owner action. Never misrepresent review status.
 
-CODEOWNERS currently names only the owner. Owner-authored PRs cannot satisfy
-an owner review of their own work. Use a distinct non-admin agent author and
-the owner reviewer, or obtain owner authorization to change the review model.
-Do not silently weaken protection to solve this bootstrap/access issue.
+CODEOWNERS identifies ownership contacts but does not impose a protected-branch
+approval requirement. Repository governance changes still require explicit owner
+authorization and must be recorded in the handoff.
 
 Stop and ask the owner if a change needs new authority, broader privileges,
 public database access, destructive schema/data work, payment initiation, or a

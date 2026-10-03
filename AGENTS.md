@@ -10,7 +10,7 @@
 5. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
 Repository: `https://github.com/Kaleva-Media/budget-gaurd` (spelling is intentional).
-Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit and one independent approving reviewer; a new push requires a fresh approval.
+Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit; independent review is encouraged but is not a merge requirement.
 
 ## Product intent
 
@@ -82,7 +82,7 @@ Run checks relevant to the change and report exactly which ran, passed, failed, 
 - Add forward migrations for schema changes; do not rewrite already-applied production migrations. Verify ownership constraints and security-invoker views.
 - Run `python3 -m unittest discover -s deploy/tests -v` and `python3 deploy/policy.py --base origin/main` for deployment/schema changes. Never edit the approved migration baseline or disable a safety check to pass CI.
 - Web/function releases go through the exact-SHA automated workflow and root-owned forced-command controller. A successful, restore-tested backup is mandatory before migrations. Compatible additive schema is retained during code rollback; destructive database recovery requires a separate authorized maintenance plan.
-- Ordinary agents need non-admin GitHub write access and must not receive general production SSH, Docker access or database/service-role credentials. Stop if the task requires a security exception; do not borrow owner credentials or impersonate an independent reviewer.
+- Ordinary agents need non-admin GitHub write access and must not receive general production SSH, Docker access or database/service-role credentials. Stop if the task requires a security exception; do not borrow owner credentials or misrepresent the review status.
 - Production deployment, email routing/DNS changes, key rotation, data mutation, and rollback require user authorization for the current task. Historical authorization in a handoff is not standing permission.
 - Never re-run the production provisioning script over the existing stack, expose loopback database/API ports, enable apex Email Routing MX, or force-push without explicit scope and approval.
 - Keep `docs/handoff.md` updated when status changes. Distinguish source changes, deployment changes, and end-to-end verification; record versions and outcomes without secret values.

@@ -172,8 +172,9 @@ Read `docs/deployment-policy.md` before production work. The guardrails are acti
 on `main`.
 
 Live GitHub controls: protected main requires strict/up-to-date `all-tests`
-bound to GitHub Actions, one independent approving review, stale-review
-dismissal, last-push approval, code-owner review and resolved conversations.
+bound to GitHub Actions and resolved conversations. Independent and code-owner
+review are encouraged but are not merge requirements, per the owner's permanent
+2026-10-03 governance change.
 Administrators are included; force pushes/deletions are prohibited; squash only.
 Production and rollback environments permit only main; rollback requires owner
 approval. CI credentials are environment-scoped and host keys pinned.
@@ -203,8 +204,8 @@ Storage file bytes or provide off-host disaster recovery.
 
 Remaining governance setup: accept Lerato's organization/team invitation after it
 is successfully sent. Until then, both desktop GitHub connections authenticate as
-the owner and cannot independently approve an owner-authored PR. Main still requires
-independent review; any temporary exception must be explicitly authorized and restored.
+the owner. Independent review is not a protected-branch requirement, although it
+remains recommended for migrations and security-sensitive changes.
 Cloudflare email-Worker automated publishing still needs a scoped credential;
 its CI dry run is not a live deployment or proof of invoice delivery.
 
