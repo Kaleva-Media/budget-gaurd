@@ -62,6 +62,7 @@ import app.budgetguard.android.dashboard.LocalBudgetInvestigator
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
+import app.budgetguard.android.dashboard.TransactionMatchSuggestion
 import app.budgetguard.android.dashboard.availableBudgetCategories
 import app.budgetguard.android.dashboard.budgetPeriodLabelFor
 import app.budgetguard.android.dashboard.budgetSummary
@@ -74,6 +75,7 @@ import app.budgetguard.android.dashboard.formatTransactionDate
 import app.budgetguard.android.dashboard.formatZar
 import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.homeHeroSummary
+import app.budgetguard.android.dashboard.exactTransactionMatchSuggestions
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -512,6 +514,29 @@ class MainActivity : ComponentActivity() {
             }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         content.addView(signalRow.withTopMargin(12))
+
+        val matchSuggestions = data.exactTransactionMatchSuggestions()
+        if (matchSuggestions.isNotEmpty()) {
+            val matchSignal = card(Palette.sage, radius = 22, padding = 17)
+            val matchTop = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+            matchTop.addView(vertical().apply {
+                addView(label("MATCH FOUND", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.09f })
+                addView(label(
+                    "${matchSuggestions.size} ${if (matchSuggestions.size == 1) "transaction looks" else "transactions look"} like planned payments",
+                    15f,
+                    Palette.ink,
+                    bold = true,
+                ).withTopMargin(5))
+                addView(label("Review and confirm—BudgetGuard will not link them automatically.", 12f, Palette.inkSoft).withTopMargin(4))
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            matchTop.addView(label("Review  →", 12f, Palette.moss, bold = true))
+            matchSignal.addView(matchTop)
+            matchSignal.setOnClickListener {
+                selectedScreen = Screen.TRANSACTIONS
+                renderDashboard()
+            }
+            content.addView(matchSignal.withTopMargin(12))
+        }
 
         val investigate = card(Palette.sage, radius = 22, padding = 17)
         investigate.addView(label("ASK BUDGETGUARD", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.09f })
@@ -1486,6 +1511,21 @@ class MainActivity : ComponentActivity() {
         content.addView(buildHeader("Activity"))
         content.addView(label("Every movement.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Tap a category to sort a payment. Pending card reservations stay separate from posted spend.", 14f, Palette.muted).withTopMargin(7))
+
+        val matchSuggestions = data.exactTransactionMatchSuggestions()
+        if (matchSuggestions.isNotEmpty()) {
+            val suggestions = card(Palette.sage, radius = 22, padding = 17)
+            suggestions.addView(label("POSSIBLE PLAN MATCHES", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+            suggestions.addView(label(
+                "BudgetGuard found ${matchSuggestions.size} exact ${if (matchSuggestions.size == 1) "match" else "matches"}. Nothing is linked until you confirm.",
+                13f,
+                Palette.inkSoft,
+            ).withTopMargin(6))
+            matchSuggestions.forEach { suggestion ->
+                suggestions.addView(transactionMatchSuggestionRow(data, suggestion).withTopMargin(12))
+            }
+            content.addView(suggestions.withTopMargin(18))
+        }
 
         if (data.transactionsNeedingReview > 0) {
             val notice = card(Palette.peach, radius = 20, padding = 17)
@@ -2737,6 +2777,12 @@ class MainActivity : ComponentActivity() {
             val account = data.accounts.firstOrNull { it.id == transaction.accountId }?.name ?: "Account"
             addView(label("${formatTransactionDate(transaction.occurredOn)} · $account · ${transaction.status}", 11f, Palette.muted).apply { maxLines = 1 }.withTopMargin(3))
             if (!compact) {
+                val matchedNames = transaction.plannedItemIds.mapNotNull { plannedId ->
+                    data.plannedItems.firstOrNull { it.id == plannedId }?.name
+                }
+                if (matchedNames.isNotEmpty()) {
+                    addView(label("✓ Matched to ${matchedNames.joinToString()}", 11f, Palette.moss, bold = true).withTopMargin(7))
+                }
                 val category = data.categories.firstOrNull { it.id == transaction.categoryId }
                 val categoryButton = action(category?.name ?: "Choose category", primary = false, compact = true).apply {
                     if (category == null) {
@@ -2751,6 +2797,65 @@ class MainActivity : ComponentActivity() {
         row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         row.addView(label(formatZar(transaction.amountCents, showSign = true), 14f, if (transaction.amountCents < 0) Palette.ink else Palette.moss, bold = true).apply { gravity = Gravity.END })
         return row
+    }
+
+    private fun transactionMatchSuggestionRow(
+        data: MobileDashboard,
+        suggestion: TransactionMatchSuggestion,
+    ): View = vertical().apply {
+        background = rounded(Palette.canvas, 17, Palette.line)
+        setPadding(dp(13), dp(12), dp(13), dp(12))
+        val accountName = data.accounts.firstOrNull { it.id == suggestion.transaction.accountId }?.name ?: "Account"
+        addView(label(
+            "${suggestion.transaction.merchant} · ${formatZar(suggestion.amountCents)}",
+            14f,
+            Palette.ink,
+            bold = true,
+        ))
+        addView(label(
+            "${formatTransactionDate(suggestion.transaction.occurredOn)} · $accountName → ${suggestion.plannedItem.name}",
+            11f,
+            Palette.muted,
+        ).withTopMargin(3))
+        addView(action("Confirm match", primary = true, compact = true).apply {
+            contentDescription = "Confirm ${suggestion.transaction.merchant} as payment for ${suggestion.plannedItem.name}"
+            setOnClickListener { showTransactionMatchConfirmation(data, suggestion) }
+        }.withTopMargin(9))
+    }
+
+    private fun showTransactionMatchConfirmation(
+        data: MobileDashboard,
+        suggestion: TransactionMatchSuggestion,
+    ) {
+        val accountName = data.accounts.firstOrNull { it.id == suggestion.transaction.accountId }?.name ?: "Account"
+        AlertDialog.Builder(this)
+            .setTitle("Match this transaction?")
+            .setMessage(
+                "${suggestion.transaction.merchant} · ${formatZar(suggestion.amountCents)}\n" +
+                    "${formatTransactionDate(suggestion.transaction.occurredOn)} · $accountName\n\n" +
+                    "Planned item: ${suggestion.plannedItem.name}\n\n" +
+                    "Confirming records that this transaction settled the planned item. It does not move money or make a payment.",
+            )
+            .setPositiveButton("Confirm match") { _, _ -> confirmTransactionMatch(suggestion) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmTransactionMatch(suggestion: TransactionMatchSuggestion) {
+        lifecycleScope.launch {
+            runCatching {
+                applicationState.collectorClient?.confirmPlannedItemMatch(
+                    plannedItemId = suggestion.plannedItem.id,
+                    transactionId = suggestion.transaction.id,
+                    amountCents = suggestion.amountCents,
+                ) ?: error("BudgetGuard is not configured.")
+            }.onSuccess {
+                Toast.makeText(this@MainActivity, "Matched to ${suggestion.plannedItem.name}.", Toast.LENGTH_SHORT).show()
+                loadDashboard(keepContentVisible = true)
+            }.onFailure {
+                Toast.makeText(this@MainActivity, "Couldn't confirm that match.", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun accountCard(account: Account): View {

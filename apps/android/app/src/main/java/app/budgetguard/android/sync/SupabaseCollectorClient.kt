@@ -780,6 +780,32 @@ class SupabaseCollectorClient private constructor(
         }
     }
 
+    suspend fun confirmPlannedItemMatch(
+        plannedItemId: String,
+        transactionId: String,
+        amountCents: Long,
+    ) {
+        require(amountCents > 0) { "A transaction match amount must be positive." }
+        val userId = authenticatedUserId()
+        client.from("planned_item_matches").upsert(
+            NewPlannedItemMatch(
+                userId = userId,
+                plannedItemId = plannedItemId,
+                transactionId = transactionId,
+                amountCents = amountCents,
+            ),
+        ) {
+            onConflict = "planned_item_id,transaction_id"
+            ignoreDuplicates = true
+        }
+        client.from("transactions").update(TransactionReviewUpdate(needsReview = false)) {
+            filter {
+                eq("id", transactionId)
+                eq("user_id", userId)
+            }
+        }
+    }
+
     suspend fun loadPlannedItemMoveTargets(): List<PlannedItemMoveTarget> {
         authenticatedUserId()
         val entities = client.from("entities")
@@ -1390,8 +1416,21 @@ private data class NewPaymentConfirmation(
 )
 
 @Serializable
+private data class NewPlannedItemMatch(
+    @SerialName("user_id") val userId: String,
+    @SerialName("planned_item_id") val plannedItemId: String,
+    @SerialName("transaction_id") val transactionId: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
 private data class TransactionCategoryUpdate(
     @SerialName("category_id") val categoryId: String?,
+    @SerialName("needs_review") val needsReview: Boolean,
+)
+
+@Serializable
+private data class TransactionReviewUpdate(
     @SerialName("needs_review") val needsReview: Boolean,
 )
 
