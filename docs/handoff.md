@@ -6,6 +6,21 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-03 Android transaction-match suggestions source change**: Android now
+  proposes confirmation-only links when one active-cycle transaction and one plan
+  item have the same direction, exact remaining amount, and compatible assigned
+  account. Transfers, reversals, already-linked transactions, settled items, and
+  ambiguous same-amount candidates are excluded. Home announces available matches;
+  Activity shows the transaction, planned item, amount, date, and account before an
+  explicit confirmation. Confirmation writes the existing owner-scoped
+  `planned_item_matches` record, clears review state, and reloads derived plan
+  progress; it does not initiate a payment. Android advances to `0.6.3` (code 19).
+  Local verification passed parser tests, all 52 app unit tests, Android lint,
+  debug APK assembly, and `git diff --check`. The configured debug APK SHA-256 is
+  `aaf03f35ab4c78c879e1aa45e88c58f7e23f6a84c73da50ca6ddfa0f29cf4d26`.
+  This is source-only until merged and explicitly deployed; installed-device
+  behaviour remains unverified.
+
 - **2026-10-03 Android drawer, chat, and control usability deployment**: The full-height Android
   navigation drawer is now hosted in a fill-viewport `ScrollView`, so navigation,
   privacy text, and sign-out remain reachable on shorter displays and with larger

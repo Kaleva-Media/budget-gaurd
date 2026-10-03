@@ -79,6 +79,8 @@ Planned items can point to the account responsible for receiving or paying them.
 
 `planned_item_matches` links one or more normalized transactions to a planned item. Progress is derived in the `planned_item_progress` security-invoker view, so partial payments and split transactions do not require a mutable status that can drift out of sync.
 
+Android derives confirmation-only match suggestions from the active cycle data. A transaction must be unmatched, posted or pending, non-transfer/non-reversal, and have the same sign direction and exact remaining amount as a plan item. An assigned plan account must match the transaction account. The app suggests a pair only when both sides have one unique candidate; ambiguous equal-amount entries remain unlinked. Confirmation inserts the existing owner-scoped match record and clears transaction review state. It does not move money, create a transaction, or infer a match without user approval.
+
 `planned_item_payment_confirmations` records an owner's explicit “mark paid” action for an expense. It is a reversible bookkeeping confirmation, not a transaction, account-balance change, or payment instruction. Only owned expense items can be confirmed. A confirmed item is treated as settled in plan grouping and remaining-commitment calculations, while matched transaction progress remains authoritative evidence of actual movement. Calculations use the greater of the confirmed planned amount and transaction-derived progress, so the two signals cannot double-count an expense. If transaction matches already settle an item, removing a manual confirmation does not make it unpaid.
 
 Projected surplus is:

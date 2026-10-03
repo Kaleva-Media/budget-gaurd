@@ -27,7 +27,12 @@ data class MobileDashboard(
     val debtSpendingHistory: List<DebtSpendingMonth> = emptyList(),
 ) {
     val transactionsNeedingReview: Int
-        get() = transactions.count { it.needsReview || (it.amountCents < 0 && it.categoryId == null) }
+        get() = transactions.count {
+            it.plannedItemIds.isEmpty() &&
+                it.amountCents < 0 &&
+                it.kind !in setOf("transfer", "reversal") &&
+                (it.needsReview || it.categoryId == null)
+        }
 
     val invoicesNeedingReview: Int
         get() = invoices.count { it.status == "needs_review" }
@@ -219,6 +224,46 @@ data class Transaction(
     val needsReview: Boolean,
     val plannedItemIds: List<String> = emptyList(),
 )
+
+data class TransactionMatchSuggestion(
+    val transaction: Transaction,
+    val plannedItem: PlannedItem,
+    val amountCents: Long,
+)
+
+fun MobileDashboard.exactTransactionMatchSuggestions(): List<TransactionMatchSuggestion> {
+    val eligibleTransactions = transactions.filter { transaction ->
+        transaction.plannedItemIds.isEmpty() &&
+            transaction.amountCents != 0L &&
+            transaction.amountCents != Long.MIN_VALUE &&
+            transaction.status in setOf("posted", "pending") &&
+            transaction.kind !in setOf("transfer", "reversal")
+    }
+    val eligibleItems = plannedItems.filter { item ->
+        item.actualCents < item.plannedCents
+    }
+
+    val candidates = eligibleTransactions.flatMap { transaction ->
+        val amountCents = kotlin.math.abs(transaction.amountCents)
+        val direction = if (transaction.amountCents < 0) "expense" else "income"
+        eligibleItems
+            .filter { item ->
+                item.direction == direction &&
+                    item.plannedCents - item.actualCents == amountCents &&
+                    (item.accountId == null || item.accountId == transaction.accountId)
+            }
+            .map { item -> TransactionMatchSuggestion(transaction, item, amountCents) }
+    }
+    val candidatesPerTransaction = candidates.groupingBy { it.transaction.id }.eachCount()
+    val candidatesPerItem = candidates.groupingBy { it.plannedItem.id }.eachCount()
+
+    return candidates
+        .filter { suggestion ->
+            candidatesPerTransaction[suggestion.transaction.id] == 1 &&
+                candidatesPerItem[suggestion.plannedItem.id] == 1
+        }
+        .sortedByDescending { it.transaction.occurredOn }
+}
 
 data class CashflowSummary(
     val plannedIncomeCents: Long,
