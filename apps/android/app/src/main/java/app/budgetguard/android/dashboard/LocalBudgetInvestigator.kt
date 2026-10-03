@@ -10,14 +10,23 @@ import kotlin.math.abs
 object LocalBudgetInvestigator {
     fun answer(dashboard: MobileDashboard, question: String): String {
         val prompt = question.trim().lowercase()
+        val matches = matchingTransactions(dashboard, prompt)
         return when {
+            prompt.isBlank() || prompt == "help" || prompt.contains("what can you") -> helpAnswer(dashboard)
             prompt.contains("pending") -> pendingAnswer(dashboard)
             prompt.contains("salary") || prompt.contains("income") || prompt.contains("money in") -> incomeAnswer(dashboard)
             prompt.contains("unplanned") || prompt.contains("unexpected") || prompt.contains("largest") -> unplannedAnswer(dashboard)
             prompt.contains("budget") || prompt.contains("plan") || prompt.contains("over") -> planAnswer(dashboard)
-            else -> negativePositionAnswer(dashboard)
+            prompt.contains("negative") || prompt.contains("safe to spend") || prompt.contains("shortfall") -> negativePositionAnswer(dashboard)
+            matches.isNotEmpty() -> matchingTransactionAnswer(question, dashboard, matches)
+            prompt.contains("spent") || prompt.contains("spending") || prompt.contains("paid") || prompt.contains("payments") || prompt.contains("transactions") || prompt.contains("what happened") -> spendingAnswer(dashboard)
+            prompt.contains("recent") || prompt.contains("latest") || prompt.contains("last transaction") -> recentActivityAnswer(dashboard)
+            else -> overviewAnswer(dashboard, question)
         }
     }
+
+    private fun helpAnswer(dashboard: MobileDashboard): String =
+        "I can investigate ${dashboard.month} using the transactions already on this phone. Ask about Safe to spend, pending payments, salary or income, unplanned spending, budget overruns, recent activity, or a merchant name."
 
     private fun negativePositionAnswer(dashboard: MobileDashboard): String {
         val safe = dashboard.summariseSafeToSpend()
@@ -109,6 +118,57 @@ object LocalBudgetInvestigator {
         }.joinToString("\n")
     }
 
+    private fun spendingAnswer(dashboard: MobileDashboard): String {
+        val outgoing = dashboard.transactions
+            .filter { it.amountCents < 0 && it.status in setOf("posted", "pending") && it.kind !in setOf("transfer", "reversal") }
+            .sortedBy { it.amountCents }
+        if (outgoing.isEmpty()) return "I found no posted or pending outgoing payments in ${dashboard.month}."
+        val posted = outgoing.filter { it.status == "posted" }.sumOf { abs(it.amountCents) }
+        val pending = outgoing.filter { it.status == "pending" }.sumOf { abs(it.amountCents) }
+        return buildList {
+            add("I found ${formatZar(posted)} posted and ${formatZar(pending)} pending outgoing payments in ${dashboard.month}.")
+            add("Largest outgoing entries:")
+            outgoing.take(5).forEach { add("• ${it.merchant}: ${formatZar(abs(it.amountCents))} · ${it.status} · ${formatTransactionDate(it.occurredOn)}") }
+        }.joinToString("\n")
+    }
+
+    private fun recentActivityAnswer(dashboard: MobileDashboard): String {
+        val recent = dashboard.transactions.sortedWith(compareByDescending<Transaction> { it.occurredOn }.thenByDescending { it.id })
+        if (recent.isEmpty()) return "I found no transaction activity in ${dashboard.month}."
+        return buildList {
+            add("Here is the latest activity loaded for ${dashboard.month}:")
+            recent.take(5).forEach { transaction ->
+                val direction = if (transaction.amountCents < 0) "out" else "in"
+                add("• ${transaction.merchant}: ${formatZar(abs(transaction.amountCents))} $direction · ${transaction.status} · ${formatTransactionDate(transaction.occurredOn)}")
+            }
+        }.joinToString("\n")
+    }
+
+    private fun matchingTransactionAnswer(
+        question: String,
+        dashboard: MobileDashboard,
+        matches: List<Transaction>,
+    ): String = buildList {
+        val net = matches.sumOf { it.amountCents }
+        add("For “${question.trim().take(80)}”, I found ${matches.size} matching ${if (matches.size == 1) "entry" else "entries"} in ${dashboard.month}; their net movement is ${formatZar(net)}.")
+        matches.take(5).forEach { transaction ->
+            val direction = if (transaction.amountCents < 0) "out" else "in"
+            add("• ${transaction.merchant}: ${formatZar(abs(transaction.amountCents))} $direction · ${transaction.status} · ${formatTransactionDate(transaction.occurredOn)}")
+        }
+    }.joinToString("\n")
+
+    private fun overviewAnswer(dashboard: MobileDashboard, question: String): String {
+        val safe = dashboard.summariseSafeToSpend()
+        val outgoing = dashboard.transactions.count {
+            it.amountCents < 0 && it.status in setOf("posted", "pending") && it.kind !in setOf("transfer", "reversal")
+        }
+        return buildString {
+            append("For “${question.trim().take(80)}”, I found $outgoing outgoing ${if (outgoing == 1) "payment" else "payments"} in ${dashboard.month}. ")
+            append("Safe to spend is ${formatZar(safe.safeToSpendCents)} from ${formatZar(safe.bCents)} of included balances after ${formatZar(safe.rCents)} of remaining commitments and ${formatZar(safe.pCents)} pending.")
+            append("\n\nTry asking about a merchant name, pending payments, salary, largest unplanned payments, recent activity, or budget overruns for a more specific answer.")
+        }
+    }
+
     private fun causeLines(dashboard: MobileDashboard): List<String> = buildList {
         val unplanned = unplannedTransactions(dashboard)
         if (unplanned.isNotEmpty()) {
@@ -133,4 +193,22 @@ object LocalBudgetInvestigator {
                 it.plannedItemIds.isEmpty()
         }
         .sortedBy { it.amountCents }
+
+    private fun matchingTransactions(dashboard: MobileDashboard, prompt: String): List<Transaction> {
+        val ignored = setOf(
+            "about", "after", "before", "charge", "charged", "could", "did", "does", "entry", "explain",
+            "from", "happened", "have", "merchant", "payment", "please", "show", "tell", "that", "this",
+            "transaction", "want", "what", "when", "where", "which", "with", "would", "your",
+        )
+        val terms = Regex("[a-z0-9]+").findAll(prompt)
+            .map { it.value }
+            .filter { it.length >= 3 && it !in ignored }
+            .toSet()
+        if (terms.isEmpty()) return emptyList()
+        return dashboard.transactions.filter { transaction ->
+            val category = dashboard.categories.firstOrNull { it.id == transaction.categoryId }?.name.orEmpty()
+            val searchable = "${transaction.merchant} ${transaction.description} $category".lowercase()
+            terms.any(searchable::contains)
+        }.sortedWith(compareByDescending<Transaction> { it.occurredOn }.thenByDescending { abs(it.amountCents) })
+    }
 }

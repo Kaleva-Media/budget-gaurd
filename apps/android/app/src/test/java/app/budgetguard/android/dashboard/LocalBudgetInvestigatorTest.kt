@@ -55,6 +55,34 @@ class LocalBudgetInvestigatorTest {
         assertTrue(!answer.contains("Own transfer"))
     }
 
+    @Test
+    fun answersMerchantSpecificFreeFormQuestion() {
+        val answer = LocalBudgetInvestigator.answer(
+            dashboard(
+                transactions = listOf(
+                    Transaction("uber", "cheque", null, "2026-09-05", null, -15_000, "posted", "card_purchase", "Uber", "Trip", true),
+                    Transaction("grocer", "cheque", null, "2026-09-04", null, -8_000, "posted", "card_purchase", "Grocer", "Food", true),
+                ),
+            ),
+            "Tell me about Uber",
+        )
+
+        assertTrue(answer.contains("Uber"))
+        assertTrue(answer.contains("150"))
+        assertTrue(!answer.contains("Grocer"))
+    }
+
+    @Test
+    fun unmatchedQuestionGetsQuestionAwareOverviewInsteadOfNegativeFallback() {
+        val data = dashboard()
+        val overview = LocalBudgetInvestigator.answer(data, "Can I afford a quiet weekend?")
+        val negative = LocalBudgetInvestigator.answer(data, "Why am I in the negative?")
+
+        assertTrue(overview.contains("quiet weekend"))
+        assertTrue(overview.contains("Try asking"))
+        assertTrue(overview != negative)
+    }
+
     private fun dashboard(
         plannedItems: List<PlannedItem> = emptyList(),
         transactions: List<Transaction> = emptyList(),

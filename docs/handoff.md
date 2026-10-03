@@ -11,7 +11,11 @@ This document records repository state and historical observations, not a fresh 
   privacy text, and sign-out remain reachable on shorter displays and with larger
   font scaling. System-bar insets are applied to the scrolling container. The
   assistant composer now has an explicit 56dp touch/input height and balanced
-  vertical padding. Profile's Workspace card now exposes a clear “Change entity &
+  vertical padding. IME insets, resize mode, focus scrolling, and post-response
+  bottom scrolling keep the composer and newest reply above the keyboard. The local
+  investigator now distinguishes spending, recent activity, merchant-specific, and
+  unmatched questions instead of routing every unknown prompt to the same negative
+  balance response. Profile's Workspace card now exposes a clear “Change entity &
   cycle date” action that opens the existing owner-scoped entity editor. Android
   version advances to `0.6.2` (code 18) so the eventual APK installs as an update.
   This is source-only until merged and explicitly deployed; installed-device

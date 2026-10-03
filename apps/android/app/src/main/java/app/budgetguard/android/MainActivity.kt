@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -110,6 +111,7 @@ class MainActivity : ComponentActivity() {
     private var planSearchQuery = ""
     private var expenseOrder = ExpenseOrder.NAME
     private val assistantMessages = mutableListOf<AssistantMessage>()
+    private var scrollAssistantToBottom = false
 
     private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         updateCollectorWidgets()
@@ -137,6 +139,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra("open_debt_freedom", false) == true) selectedScreen = Screen.DEBT
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -435,6 +438,10 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setInsetContentView(root)
+        if (selectedScreen == Screen.ASSISTANT && scrollAssistantToBottom) {
+            scrollAssistantToBottom = false
+            scroller.post { scroller.fullScroll(View.FOCUS_DOWN) }
+        }
         updateCollectorWidgets()
     }
 
@@ -742,6 +749,13 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(56),
             )
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    postDelayed({
+                        requestRectangleOnScreen(Rect(0, 0, width, height), true)
+                    }, 250)
+                }
+            }
         }
         val send = action("Ask locally", primary = true)
         fun submit() {
@@ -766,6 +780,7 @@ class MainActivity : ComponentActivity() {
         assistantMessages += AssistantMessage(true, question)
         assistantMessages += AssistantMessage(false, LocalBudgetInvestigator.answer(data, question))
         selectedScreen = Screen.ASSISTANT
+        scrollAssistantToBottom = true
         renderDashboard()
     }
 
@@ -3412,7 +3427,13 @@ class MainActivity : ComponentActivity() {
         val baseBottom = view.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(view) { target, windowInsets ->
             val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            target.setPadding(baseLeft + bars.left, baseTop + bars.top, baseRight + bars.right, baseBottom + bars.bottom)
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+            target.setPadding(
+                baseLeft + bars.left,
+                baseTop + bars.top,
+                baseRight + bars.right,
+                baseBottom + maxOf(bars.bottom, ime.bottom),
+            )
             windowInsets
         }
         ViewCompat.requestApplyInsets(view)
