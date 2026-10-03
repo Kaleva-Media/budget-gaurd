@@ -1,12 +1,12 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-03. Production application baseline: `af620f1` (`main`);
+Updated: 2026-10-03. Production application baseline: `36e9e93` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-10-03 Android transaction-match suggestions source change**: Android now
+- **2026-10-03 Android transaction-match suggestions deployment**: Android now
   proposes confirmation-only links when one active-cycle transaction and one plan
   item have the same direction, exact remaining amount, and compatible assigned
   account. Transfers, reversals, already-linked transactions, settled items, and
@@ -18,8 +18,15 @@ This document records repository state and historical observations, not a fresh 
   Local verification passed parser tests, all 52 app unit tests, Android lint,
   debug APK assembly, and `git diff --check`. The configured debug APK SHA-256 is
   `aaf03f35ab4c78c879e1aa45e88c58f7e23f6a84c73da50ca6ddfa0f29cf4d26`.
-  This is source-only until merged and explicitly deployed; installed-device
-  behaviour remains unverified.
+  PR [#30](https://github.com/Kaleva-Media/budget-gaurd/pull/30) was squash-merged
+  as `36e9e93`. Main CI run
+  [37122098747](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37122098747)
+  passed every suite and the required `all-tests` gate. Production deployment run
+  [37122222364](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37122222364)
+  restore-tested its backup, applied zero migrations, activated the exact tested
+  revision, and passed controller smoke checks. The public version endpoint reports
+  `36e9e93dfc7d42a91858eb94279fce9900a5b4c5`. Installed-device behaviour remains
+  unverified.
 
 - **2026-10-03 Android drawer, chat, and control usability deployment**: The full-height Android
   navigation drawer is now hosted in a fill-viewport `ScrollView`, so navigation,
