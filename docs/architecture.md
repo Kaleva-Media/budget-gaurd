@@ -68,7 +68,7 @@ An `entity` is the top-level budgeting workspace. Every account belongs to exact
 
 SMS resolution remains account-first: an existing bank identifier inherits its account's entity. A genuinely unknown identifier creates a review-needed account in the default Personal entity. Moving that account cascades its transaction history to the destination entity; old plan lines are unassigned from the moved account because those plans remain with their original entity.
 
-A `budget_period` is the monthly planning boundary. It owns the carryover and lifecycle state. Each `planned_item` is a positive amount with an explicit direction:
+A `budget_period` keeps a first-of-month label for compatibility and owns the carryover and lifecycle state. Each workspace selects a `budget_cycle_day` from 1 through 28. Day 1 retains calendar-month behaviour; for later days the named month starts on that day in the previous calendar month and ends immediately before that day in the named month. For example, the September plan with day 28 covers 28 August through 27 September. Android, web transaction reads, daily pacing, and the security-invoker `budget_cycle_progress` view use those derived boundaries. Each `planned_item` is a positive amount with an explicit direction:
 
 - income is money expected to arrive;
 - fixed and variable expenses are expected outflows;
@@ -86,6 +86,10 @@ Projected surplus is:
 `carryover + planned income - planned expenses`
 
 Flexible category envelopes remain separate. They answer how much discretionary spending is still safe; the monthly plan answers whether known obligations and savings goals are funded.
+
+## Local budget investigation
+
+Android includes a deterministic local investigator over the active workspace and selected cycle. It uses only normalized accounts, planned items, matches, categories, budgets, and transactions already loaded by the authenticated dashboard. It can explain a negative Safe-to-spend position as included SMS balances minus remaining plan commitments and pending outflows; list unmatched or uncategorized payments; surface pending charges, income entries, and plan overruns; and warn when the 100-transaction dashboard cap makes the result partial. It does not upload prompts, call a model API, treat the result as statement reconciliation, or mutate the plan. A future model-backed assistant must preserve this local evidence layer and require an explicit privacy and provider decision.
 
 ## Unplanned-payment triage
 

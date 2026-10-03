@@ -57,10 +57,12 @@ import app.budgetguard.android.dashboard.Entity
 import app.budgetguard.android.dashboard.ExpenseOrder
 import app.budgetguard.android.dashboard.HomeHeroMode
 import app.budgetguard.android.dashboard.Invoice
+import app.budgetguard.android.dashboard.LocalBudgetInvestigator
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
 import app.budgetguard.android.dashboard.availableBudgetCategories
+import app.budgetguard.android.dashboard.budgetPeriodLabelFor
 import app.budgetguard.android.dashboard.budgetSummary
 import app.budgetguard.android.dashboard.cashflowSummary
 import app.budgetguard.android.dashboard.debtPlan
@@ -87,8 +89,9 @@ import java.time.YearMonth
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
-    private enum class Screen { HOME, DEBT, TRANSACTIONS, INVOICES, ACCOUNTS, PROFILE }
+    private enum class Screen { HOME, ASSISTANT, DEBT, TRANSACTIONS, INVOICES, ACCOUNTS, PROFILE }
     private enum class AuthMode { SIGN_IN, SIGN_UP }
+    private data class AssistantMessage(val fromUser: Boolean, val text: String)
 
     private val applicationState by lazy { application as BudgetGuardApplication }
     private var selectedScreen = Screen.HOME
@@ -106,6 +109,7 @@ class MainActivity : ComponentActivity() {
     private var pendingAccountScan: Pair<String, String>? = null
     private var planSearchQuery = ""
     private var expenseOrder = ExpenseOrder.NAME
+    private val assistantMessages = mutableListOf<AssistantMessage>()
 
     private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         updateCollectorWidgets()
@@ -172,6 +176,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             runCatching { client.loadDashboard(selectedEntityId, selectedPeriodStart) }
                 .onSuccess {
+                    if (dashboard?.entity?.id != null && dashboard?.entity?.id != it.entity.id) assistantMessages.clear()
                     dashboard = it
                     selectedEntityId = it.entity.id
                     selectedPeriodStart = it.period.startsOn
@@ -420,6 +425,7 @@ class MainActivity : ComponentActivity() {
             isFillViewport = true
             addView(when (selectedScreen) {
                 Screen.HOME -> buildHome(data)
+                Screen.ASSISTANT -> buildBudgetAssistant(data)
                 Screen.DEBT -> buildDebtFreedom(data)
                 Screen.TRANSACTIONS -> buildTransactions(data)
                 Screen.INVOICES -> buildInvoices(data)
@@ -499,6 +505,20 @@ class MainActivity : ComponentActivity() {
             }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         content.addView(signalRow.withTopMargin(12))
+
+        val investigate = card(Palette.sage, radius = 22, padding = 17)
+        investigate.addView(label("ASK BUDGETGUARD", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.09f })
+        investigate.addView(label("Why am I in the negative?", 17f, Palette.ink, bold = true).withTopMargin(5))
+        investigate.addView(label("Run a private, on-device check of this cycle's balances, commitments, pending charges, and unplanned payments.", 13f, Palette.inkSoft).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }.withTopMargin(5))
+        investigate.addView(action("Investigate this cycle", primary = false).apply {
+            setOnClickListener {
+                selectedScreen = Screen.ASSISTANT
+                askBudgetGuard(data, "Why am I in the negative?")
+            }
+        }.withTopMargin(12))
+        content.addView(investigate.withTopMargin(12))
 
         if (data.invoiceInbox != null) {
             val invoiceSignal = card(if (data.invoicesNeedingReview > 0) Palette.peach else Palette.sage, radius = 22, padding = 17)
@@ -670,6 +690,77 @@ class MainActivity : ComponentActivity() {
         }
 
         return content
+    }
+
+    private fun buildBudgetAssistant(data: MobileDashboard): View {
+        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
+        content.addView(buildHeader("Budget assistant"))
+        content.addView(label("Ask what happened.", 31f, Palette.ink, bold = true).withTopMargin(22))
+        content.addView(label(
+            "This first version investigates normalized data already loaded for ${data.entity.name}. It runs locally and does not send your transactions or questions to an AI provider.",
+            14f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
+
+        val questions = listOf(
+            "Why am I in the negative?",
+            "Show my largest unplanned payments",
+            "Which budgets or plan items went over?",
+            "What pending payments are holding money?",
+            "Did my salary arrive in this cycle?",
+        )
+        val quick = card(Palette.canvas, radius = 22, padding = 16)
+        quick.addView(label("QUICK QUESTIONS", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+        questions.forEach { question ->
+            quick.addView(action(question, primary = false).apply {
+                setOnClickListener { askBudgetGuard(data, question) }
+            }.withTopMargin(8))
+        }
+        content.addView(quick.withTopMargin(18))
+
+        if (assistantMessages.isEmpty()) {
+            content.addView(emptyCard("Choose a question or type your own. The assistant will explain its calculation from this cycle's visible data.").withTopMargin(14))
+        } else {
+            assistantMessages.forEach { message ->
+                val bubble = card(if (message.fromUser) Palette.peach else Palette.sage, radius = 20, padding = 16)
+                bubble.addView(label(if (message.fromUser) "YOU" else "BUDGETGUARD", 9f, Palette.moss, bold = true).apply { letterSpacing = 0.08f })
+                bubble.addView(label(message.text, 14f, Palette.ink).apply {
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setTextIsSelectable(true)
+                }.withTopMargin(6))
+                content.addView(bubble.withTopMargin(10))
+            }
+        }
+
+        val composer = card(Palette.canvas, radius = 22, padding = 16)
+        val prompt = input("Ask about this cycle").apply {
+            imeOptions = EditorInfo.IME_ACTION_SEND
+            setSingleLine(true)
+        }
+        val send = action("Ask locally", primary = true)
+        fun submit() {
+            val question = prompt.text.toString().trim()
+            if (question.isBlank()) return
+            askBudgetGuard(data, question)
+        }
+        prompt.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                submit()
+                true
+            } else false
+        }
+        send.setOnClickListener { submit() }
+        composer.addView(prompt)
+        composer.addView(send.withTopMargin(10))
+        content.addView(composer.withTopMargin(14))
+        return content
+    }
+
+    private fun askBudgetGuard(data: MobileDashboard, question: String) {
+        assistantMessages += AssistantMessage(true, question)
+        assistantMessages += AssistantMessage(false, LocalBudgetInvestigator.answer(data, question))
+        selectedScreen = Screen.ASSISTANT
+        renderDashboard()
     }
 
     private fun buildDebtFreedom(data: MobileDashboard): View {
@@ -1704,6 +1795,8 @@ class MainActivity : ComponentActivity() {
         workspace.addView(divider().withVerticalMargin(12))
         workspace.addView(moneyLine("Active period", data.month, Palette.ink))
         workspace.addView(divider().withVerticalMargin(12))
+        workspace.addView(moneyLine("Budget cycle starts", if (data.entity.budgetCycleDay == 1) "1st of the month" else "Day ${data.entity.budgetCycleDay}", Palette.ink))
+        workspace.addView(divider().withVerticalMargin(12))
         workspace.addView(moneyLine("Accounts", data.accounts.size.toString(), Palette.ink))
         workspace.addView(divider().withVerticalMargin(12))
         workspace.addView(moneyLine("Categories", data.categories.size.toString(), Palette.ink))
@@ -1785,6 +1878,7 @@ class MainActivity : ComponentActivity() {
 
         shell.addView(label("NAVIGATE", 10f, Palette.inkMuted, bold = true).apply { letterSpacing = 0.1f }.withTopMargin(24))
         shell.addView(drawerNavItem("⌂", "Home", "Today's position", Screen.HOME, dialog).withTopMargin(10))
+        shell.addView(drawerNavItem("?", "Ask BudgetGuard", "Investigate this cycle locally", Screen.ASSISTANT, dialog).withTopMargin(6))
         val activeDebts = data.debts.filter(Debt::isActive)
         shell.addView(drawerNavItem("↓", "Debt freedom", if (activeDebts.isEmpty()) "Build a repayment route" else "${activeDebts.size} debts · ${formatZar(activeDebts.sumOf { it.balanceCents })}", Screen.DEBT, dialog).withTopMargin(6))
         shell.addView(drawerNavItem("↕", "Activity", if (data.transactionsNeedingReview > 0) "${data.transactionsNeedingReview} need review" else "Transactions are clear", Screen.TRANSACTIONS, dialog).withTopMargin(6))
@@ -1835,8 +1929,9 @@ class MainActivity : ComponentActivity() {
         setOnClickListener {
             selectedScreen = screen
             dialog.dismiss()
-            if (screen == Screen.DEBT && selectedPeriodStart != YearMonth.now().atDay(1).toString()) {
-                selectedPeriodStart = YearMonth.now().atDay(1).toString()
+            val currentPeriod = dashboard?.entity?.let { budgetPeriodLabelFor(LocalDate.now(), it.budgetCycleDay) }
+            if (screen == Screen.DEBT && selectedPeriodStart != currentPeriod) {
+                selectedPeriodStart = currentPeriod
                 loadDashboard(keepContentVisible = true)
             } else {
                 renderDashboard()
@@ -1852,6 +1947,7 @@ class MainActivity : ComponentActivity() {
             selectedScreen = Screen.HOME
             selectedEntityId = null
             selectedPeriodStart = null
+            assistantMessages.clear()
             renderAuth()
         }
     }
@@ -1897,11 +1993,12 @@ class MainActivity : ComponentActivity() {
     private fun showPeriodPicker(data: MobileDashboard) {
         val periods = data.periods.sortedByDescending { it.startsOn }
         val latest = periods.maxOfOrNull { YearMonth.from(LocalDate.parse(it.startsOn)) } ?: YearMonth.now()
-        val next = maxOf(latest, YearMonth.now()).plusMonths(1).atDay(1).toString()
+        val current = YearMonth.from(LocalDate.parse(budgetPeriodLabelFor(LocalDate.now(), data.entity.budgetCycleDay)))
+        val next = maxOf(latest, current).plusMonths(1).atDay(1).toString()
         val options = periods.map { period ->
             val marker = if (period.startsOn == data.period.startsOn) "✓  " else ""
-            "$marker${formatPeriodRange(period.startsOn)}"
-        } + "+  Plan ${formatPeriodRange(next)}"
+            "$marker${formatPeriodRange(period.startsOn, data.entity.budgetCycleDay)}"
+        } + "+  Plan ${formatPeriodRange(next, data.entity.budgetCycleDay)}"
 
         AlertDialog.Builder(this)
             .setTitle("Select budget period")
@@ -1926,6 +2023,7 @@ class MainActivity : ComponentActivity() {
                 when {
                     index < entities.size -> {
                         selectedEntityId = entities[index].id
+                        selectedPeriodStart = null
                         loadDashboard()
                     }
                     index == entities.size -> showEntityEditor(data.entity)
@@ -1955,6 +2053,22 @@ class MainActivity : ComponentActivity() {
         }
         container.addView(name.withTopMargin(16))
         container.addView(kind.withTopMargin(10))
+        val cycleDays = (1..28).map { day -> if (day == 1) "1st · calendar month" else "Day $day" }
+        val cycleDay = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, cycleDays)
+            setSelection((entity?.budgetCycleDay ?: 1) - 1)
+            background = rounded(Palette.paper, 16, Palette.line)
+            minimumHeight = dp(52)
+            setPadding(dp(10), 0, dp(10), 0)
+            contentDescription = "Budget cycle start day"
+        }
+        container.addView(label("BUDGET CYCLE START", 9f, Palette.muted, bold = true).apply { letterSpacing = 0.08f }.withTopMargin(14))
+        container.addView(cycleDay.withTopMargin(5))
+        container.addView(label(
+            "Choose the day salary starts funding the next named month. Day 28 makes the September plan run from 28 Aug through 27 Sep.",
+            12f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(7))
         if (entity?.isDefault == true) {
             container.addView(label("${entity.name} is your default destination for newly auto-detected SMS accounts. You can move them later.", 12f, Palette.moss, bold = true).withTopMargin(10))
         }
@@ -1980,10 +2094,12 @@ class MainActivity : ComponentActivity() {
                             entityId = entity?.id,
                             name = entityName,
                             kind = kinds[kind.selectedItemPosition].second,
+                            budgetCycleDay = cycleDay.selectedItemPosition + 1,
                         ) ?: error("BudgetGuard is not configured.")
                     }.onSuccess { savedId ->
                         dialog.dismiss()
                         selectedEntityId = savedId
+                        selectedPeriodStart = null
                         loadDashboard()
                     }.onFailure {
                         save.isEnabled = true
@@ -2365,7 +2481,7 @@ class MainActivity : ComponentActivity() {
                 adapter = ArrayAdapter(
                     this@MainActivity,
                     android.R.layout.simple_spinner_dropdown_item,
-                    targets.map { "${it.entityName} · ${formatPeriodRange(it.startsOn)}" },
+                    targets.map { "${it.entityName} · ${formatPeriodRange(it.startsOn, it.budgetCycleDay)}" },
                 )
                 background = rounded(Palette.paper, 16, Palette.line)
                 minimumHeight = dp(52)

@@ -20,6 +20,8 @@ import app.budgetguard.android.dashboard.InvoiceInbox
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
 import app.budgetguard.android.dashboard.Transaction
+import app.budgetguard.android.dashboard.budgetCycleBounds
+import app.budgetguard.android.dashboard.budgetPeriodLabelFor
 import app.budgetguard.android.dashboard.categoryScopeForEntityKind
 import app.budgetguard.android.dashboard.formatPeriodRange
 import app.budgetguard.android.sms.AccountMessageCandidate
@@ -63,6 +65,7 @@ data class PlannedItemMoveTarget(
     val entityName: String,
     val periodId: String,
     val startsOn: String,
+    val budgetCycleDay: Int,
 )
 
 class NotAuthenticatedException : Exception()
@@ -119,7 +122,8 @@ class SupabaseCollectorClient private constructor(
             ?: entityRows.firstOrNull()
             ?: error("Your account does not have an active budget entity.")
         preferences.edit { putString("selected_entity_$userId", entityRow.id) }
-        val periodStart = requestedPeriodStart ?: YearMonth.now().atDay(1).toString()
+        val currentPeriodStart = budgetPeriodLabelFor(LocalDate.now(), entityRow.budgetCycleDay ?: 1)
+        val periodStart = requestedPeriodStart ?: currentPeriodStart
         var periodRows = synchroniseCarryovers(loadPeriods(entityRow.id))
         if (periodRows.none { it.startsOn == periodStart }) {
             val previous = periodRows.lastOrNull { it.startsOn < periodStart }
@@ -129,7 +133,7 @@ class SupabaseCollectorClient private constructor(
                     userId = userId,
                     entityId = entityRow.id,
                     startsOn = periodStart,
-                    status = if (periodStart > YearMonth.now().atDay(1).toString()) "draft" else "active",
+                    status = if (periodStart > currentPeriodStart) "draft" else "active",
                     carryoverCents = carryover,
                 ),
             ) { select() }.decodeSingle<BudgetPeriodRow>()
@@ -137,7 +141,9 @@ class SupabaseCollectorClient private constructor(
             periodRows = synchroniseCarryovers(loadPeriods(entityRow.id))
         }
         val periodRow = periodRows.single { it.startsOn == periodStart }
-        val periodEnd = YearMonth.from(LocalDate.parse(periodStart)).plusMonths(1).atDay(1).toString()
+        val cycleBounds = budgetCycleBounds(periodStart, entityRow.budgetCycleDay ?: 1)
+        val cycleStart = cycleBounds.startsOn.toString()
+        val cycleEnd = cycleBounds.endsOnExclusive.toString()
 
         val profile = client.from("profiles")
             .select { limit(1) }
@@ -160,7 +166,7 @@ class SupabaseCollectorClient private constructor(
                 order("sort_order", Order.ASCENDING)
             }
             .decodeList<CategoryRow>()
-        val budgets = client.from("budget_progress")
+        val budgets = client.from("budget_cycle_progress")
             .select {
                 filter {
                     eq("entity_id", entityRow.id)
@@ -184,8 +190,8 @@ class SupabaseCollectorClient private constructor(
             .select {
                 filter {
                     eq("entity_id", entityRow.id)
-                    gte("occurred_on", periodStart)
-                    lt("occurred_on", periodEnd)
+                    gte("occurred_on", cycleStart)
+                    lt("occurred_on", cycleEnd)
                 }
                 order("occurred_on", Order.DESCENDING)
                 limit(100)
@@ -253,7 +259,7 @@ class SupabaseCollectorClient private constructor(
         val balancesByCheckIn = debtCheckInBalances.groupBy(DebtCheckInBalanceRow::checkInId)
 
         return MobileDashboard(
-            month = formatPeriodRange(periodStart),
+            month = formatPeriodRange(periodStart, entityRow.budgetCycleDay ?: 1),
             profileDisplayName = profile.displayName,
             entity = entityRow.toModel(),
             entities = entityRows.map(EntityRow::toModel),
@@ -446,9 +452,10 @@ class SupabaseCollectorClient private constructor(
         }
     }
 
-    suspend fun saveEntity(entityId: String?, name: String, kind: String): String {
+    suspend fun saveEntity(entityId: String?, name: String, kind: String, budgetCycleDay: Int): String {
         val userId = authenticatedUserId()
         val cleanName = name.trim()
+        require(budgetCycleDay in 1..28) { "Budget cycle day must be between 1 and 28." }
         return if (entityId == null) {
             client.from("entities").insert(
                 NewEntity(
@@ -456,10 +463,11 @@ class SupabaseCollectorClient private constructor(
                     name = cleanName,
                     kind = kind,
                     displayOrder = 100,
+                    budgetCycleDay = budgetCycleDay,
                 ),
             ) { select() }.decodeSingle<EntityId>().id
         } else {
-            client.from("entities").update(EntityDetailsUpdate(cleanName, kind)) {
+            client.from("entities").update(EntityDetailsUpdate(cleanName, kind, budgetCycleDay)) {
                 filter { eq("id", entityId) }
                 select()
             }.decodeSingle<EntityId>().id
@@ -787,6 +795,7 @@ class SupabaseCollectorClient private constructor(
                     entityName = entity.name,
                     periodId = period.id,
                     startsOn = period.startsOn,
+                    budgetCycleDay = entity.budgetCycleDay ?: 1,
                 )
             }
         }.sortedWith(compareBy<PlannedItemMoveTarget> { it.entityName }.thenByDescending { it.startsOn })
@@ -1139,8 +1148,9 @@ private data class EntityRow(
     val kind: String,
     @SerialName("is_default") val isDefault: Boolean,
     @SerialName("display_order") val displayOrder: Int,
+    @SerialName("budget_cycle_day") val budgetCycleDay: Int? = 1,
 ) {
-    fun toModel() = Entity(id, name, kind, isDefault, displayOrder)
+    fun toModel() = Entity(id, name, kind, isDefault, displayOrder, budgetCycleDay ?: 1)
 }
 
 @Serializable
@@ -1149,12 +1159,14 @@ private data class NewEntity(
     val name: String,
     val kind: String,
     @SerialName("display_order") val displayOrder: Int,
+    @SerialName("budget_cycle_day") val budgetCycleDay: Int,
 )
 
 @Serializable
 private data class EntityDetailsUpdate(
     val name: String,
     val kind: String,
+    @SerialName("budget_cycle_day") val budgetCycleDay: Int,
 )
 
 @Serializable
