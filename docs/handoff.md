@@ -1,12 +1,12 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-03. Production application baseline: `c5640ca` (`main`);
+Updated: 2026-10-03. Production application baseline: `af620f1` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-10-03 Android drawer and control usability source fix**: The full-height Android
+- **2026-10-03 Android drawer, chat, and control usability deployment**: The full-height Android
   navigation drawer is now hosted in a fill-viewport `ScrollView`, so navigation,
   privacy text, and sign-out remain reachable on shorter displays and with larger
   font scaling. System-bar insets are applied to the scrolling container. The
@@ -18,8 +18,16 @@ This document records repository state and historical observations, not a fresh 
   balance response. Profile's Workspace card now exposes a clear “Change entity &
   cycle date” action that opens the existing owner-scoped entity editor. Android
   version advances to `0.6.2` (code 18) so the eventual APK installs as an update.
-  This is source-only until merged and explicitly deployed; installed-device
-  behaviour is not yet verified.
+  PR [#28](https://github.com/Kaleva-Media/budget-gaurd/pull/28) was squash-merged
+  as `af620f1`. Main CI run
+  [37120507920](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37120507920)
+  passed every suite and the required `all-tests` gate. Production deployment run
+  [37120641820](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37120641820)
+  restore-tested its backup, applied zero migrations, activated the exact tested
+  revision, and passed controller smoke checks. The public version endpoint reports
+  `af620f1cbcd4ae282075bbe92592a86083773e61`. The configured debug APK SHA-256 is
+  `ed0472024bb68838b0a499ba4628c99bef3634a6257bc5ba2876bbc2e6222239`.
+  Installed-device behaviour remains unverified.
 
 - **2026-10-03 pay-cycle boundaries and local investigation deployment**:
   PR [#25](https://github.com/Kaleva-Media/budget-gaurd/pull/25) adds a
