@@ -1,12 +1,13 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-03. Production source baseline: `2244edb` (`main`).
+Updated: 2026-10-03. Production source baseline: `c5640ca` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-10-03 pay-cycle boundaries and local investigation source change**:
-  `codex/pay-cycle-agent` adds a per-workspace budget-cycle day (1–28). The existing
+- **2026-10-03 pay-cycle boundaries and local investigation deployment**:
+  PR [#25](https://github.com/Kaleva-Media/budget-gaurd/pull/25) adds a
+  per-workspace budget-cycle day (1–28). The existing
   first-of-month period key remains intact for backward compatibility; day 28 makes
   the September plan cover 28 August through 27 September. Android and web select
   the current named period from that cycle, bound transaction reads to the derived
@@ -19,9 +20,21 @@ This document records repository state and historical observations, not a fresh 
   Android parser/app unit tests, Android lint, debug APK assembly, deployment policy
   and 14 controller tests. A disposable Supabase stack replayed all 11 migrations;
   all 17 pgTAP files passed (113 tests) and schema lint reported no errors. Android
-  version is `0.6.1` (code 17); the debug APK SHA-256 is
-  `81319d3e10187abb546a2c2e24278ecf8ea9757ed07b25bddbde4bd458b56198`.
-  This is source-only: it is not reviewed, merged, deployed, or device-verified.
+  PR CI passed all suites on the latest source revision. The squash merge is
+  `c5640ca`; main CI run
+  [37117388417](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37117388417)
+  passed every suite and the required `all-tests` gate. Production deployment run
+  [37117540878](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37117540878)
+  restore-tested its backup, applied the one pending migration, activated the exact
+  tested revision, and passed controller smoke checks. The public version endpoint
+  reports `c5640ca`; unauthenticated reads of `budget_cycle_progress` and the new
+  entity cycle field return `401`. Android version is `0.6.1` (code 17); the
+  configured debug APK SHA-256 is
+  `3583878bdae265afe5531f98b4d3aec88b17cb707050b0a1e94ad39b2ac13494`.
+  Installed-device behaviour remains unverified. At the owner's explicit request,
+  main no longer requires independent, code-owner, or last-push approval; strict
+  up-to-date `all-tests`, PRs, resolved conversations, administrator enforcement,
+  linear history, and force-push/deletion blocks remain enabled.
 
 - **2026-09-24 debt coaching deployment**: The `codex/debt-coaching`
   branch turns the existing recommendation into a monthly action plan with detailed
