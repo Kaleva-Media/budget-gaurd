@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  budgetCycleBounds,
+  budgetPeriodLabelFor,
   budgetPercentage,
+  daysRemainingInBudgetCycle,
+  formatBudgetPeriodRange,
   groupPlannedItems,
   isUnplannedPayment,
   plannedItemStatus,
@@ -29,6 +33,28 @@ describe("budget calculations", () => {
 
   test("caps visual budget utilisation at 100 percent", () => {
     expect(budgetPercentage({ ...budgets[0]!, spentCents: 120_000 })).toBe(100);
+  });
+
+  test("assigns salary-day transactions to the next named month", () => {
+    expect(budgetPeriodLabelFor(new Date(2026, 7, 27, 12), 28)).toBe("2026-08-01");
+    expect(budgetPeriodLabelFor(new Date(2026, 7, 28, 12), 28)).toBe("2026-09-01");
+
+    const bounds = budgetCycleBounds("2026-09-01", 28);
+    expect([bounds.startsOn.getFullYear(), bounds.startsOn.getMonth() + 1, bounds.startsOn.getDate()]).toEqual([2026, 8, 28]);
+    expect([bounds.endsOnExclusive.getFullYear(), bounds.endsOnExclusive.getMonth() + 1, bounds.endsOnExclusive.getDate()]).toEqual([2026, 9, 28]);
+    expect(formatBudgetPeriodRange("2026-09-01", 28)).toContain("28 Aug");
+  });
+
+  test("uses the selected cycle boundary for the daily flexible-budget pace", () => {
+    const result = summariseBudgets(
+      budgets,
+      new Date(2026, 8, 21, 12),
+      { startsOn: "2026-09-01", cycleDay: 28 },
+    );
+
+    expect(daysRemainingInBudgetCycle("2026-09-01", 28, new Date(2026, 8, 21, 12))).toBe(7);
+    expect(result.daysRemaining).toBe(7);
+    expect(result.safeToSpendTodayCents).toBe(13_571);
   });
 });
 

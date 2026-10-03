@@ -4,6 +4,7 @@ import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 data class MobileDashboard(
@@ -67,6 +68,7 @@ data class Entity(
     val kind: String,
     val isDefault: Boolean,
     val displayOrder: Int,
+    val budgetCycleDay: Int = 1,
 )
 
 fun categoryScopeForEntityKind(kind: String): String =
@@ -78,6 +80,29 @@ data class BudgetPeriod(
     val status: String,
     val carryoverCents: Long,
 )
+
+data class BudgetCycleBounds(
+    val startsOn: LocalDate,
+    val endsOnExclusive: LocalDate,
+)
+
+fun budgetPeriodLabelFor(date: LocalDate, cycleDay: Int): String {
+    require(cycleDay in 1..28) { "Budget cycle day must be between 1 and 28." }
+    val labelMonth = when {
+        cycleDay == 1 -> YearMonth.from(date)
+        date.dayOfMonth >= cycleDay -> YearMonth.from(date).plusMonths(1)
+        else -> YearMonth.from(date)
+    }
+    return labelMonth.atDay(1).toString()
+}
+
+fun budgetCycleBounds(periodLabelStart: String, cycleDay: Int): BudgetCycleBounds {
+    require(cycleDay in 1..28) { "Budget cycle day must be between 1 and 28." }
+    val labelMonth = YearMonth.from(LocalDate.parse(periodLabelStart))
+    val start = if (cycleDay == 1) labelMonth.atDay(1) else labelMonth.minusMonths(1).atDay(cycleDay)
+    val end = if (cycleDay == 1) labelMonth.plusMonths(1).atDay(1) else labelMonth.atDay(cycleDay)
+    return BudgetCycleBounds(start, end)
+}
 
 data class Account(
     val id: String,
@@ -245,13 +270,12 @@ fun MobileDashboard.cashflowSummary(): CashflowSummary {
 }
 
 fun MobileDashboard.homeHeroSummary(today: LocalDate = LocalDate.now()): HomeHeroSummary {
-    val selectedMonth = YearMonth.from(LocalDate.parse(period.startsOn))
-    val currentMonth = YearMonth.from(today)
+    val cycle = budgetCycleBounds(period.startsOn, entity.budgetCycleDay)
     val planPositionCents = cashflowSummary().projectedSurplusCents
 
     return when {
-        selectedMonth.isAfter(currentMonth) -> {
-            val dayCount = selectedMonth.lengthOfMonth()
+        today.isBefore(cycle.startsOn) -> {
+            val dayCount = ChronoUnit.DAYS.between(cycle.startsOn, cycle.endsOnExclusive).toInt()
             HomeHeroSummary(
                 mode = HomeHeroMode.FUTURE_DAILY_PLAN,
                 amountCents = dailyPlanAmountCents(planPositionCents, dayCount),
@@ -259,7 +283,7 @@ fun MobileDashboard.homeHeroSummary(today: LocalDate = LocalDate.now()): HomeHer
                 dayCount = dayCount,
             )
         }
-        selectedMonth.isBefore(currentMonth) -> HomeHeroSummary(
+        !today.isBefore(cycle.endsOnExclusive) -> HomeHeroSummary(
             mode = HomeHeroMode.PAST_PLAN_RESULT,
             amountCents = planPositionCents,
             planPositionCents = planPositionCents,
@@ -285,12 +309,11 @@ fun MobileDashboard.budgetSummary(today: LocalDate = LocalDate.now()): BudgetSum
     val spent = budgets.sumOf { it.spentCents }
     val committed = budgets.sumOf { it.committedCents }
     val remaining = (limit - spent - committed).coerceAtLeast(0)
-    val selectedMonth = YearMonth.from(LocalDate.parse(period.startsOn))
-    val currentMonth = YearMonth.from(today)
+    val cycle = budgetCycleBounds(period.startsOn, entity.budgetCycleDay)
     val daysRemaining = when {
-        selectedMonth.isAfter(currentMonth) -> selectedMonth.lengthOfMonth()
-        selectedMonth.isBefore(currentMonth) -> 1
-        else -> selectedMonth.lengthOfMonth() - today.dayOfMonth + 1
+        today.isBefore(cycle.startsOn) -> ChronoUnit.DAYS.between(cycle.startsOn, cycle.endsOnExclusive).toInt()
+        !today.isBefore(cycle.endsOnExclusive) -> 1
+        else -> ChronoUnit.DAYS.between(today, cycle.endsOnExclusive).toInt().coerceAtLeast(1)
     }
     return BudgetSummary(
         limitCents = limit,
@@ -317,7 +340,13 @@ fun formatTransactionDate(date: String): String = runCatching {
     LocalDate.parse(date).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
 }.getOrDefault(date)
 
-fun formatPeriodRange(startsOn: String): String = runCatching {
+fun formatPeriodRange(startsOn: String, cycleDay: Int = 1): String = runCatching {
+    if (cycleDay != 1) {
+        val cycle = budgetCycleBounds(startsOn, cycleDay)
+        val start = cycle.startsOn.format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+        val end = cycle.endsOnExclusive.minusDays(1).format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH))
+        return@runCatching "$start – $end"
+    }
     val start = YearMonth.from(LocalDate.parse(startsOn))
     val end = start.plusMonths(1)
     val startName = start.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH))

@@ -1,9 +1,27 @@
 # BudgetGuard handoff
 
-Updated: 2026-09-24. Production source baseline: `2244edb` (`main`).
+Updated: 2026-10-03. Production source baseline: `2244edb` (`main`).
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **2026-10-03 pay-cycle boundaries and local investigation source change**:
+  `codex/pay-cycle-agent` adds a per-workspace budget-cycle day (1–28). The existing
+  first-of-month period key remains intact for backward compatibility; day 28 makes
+  the September plan cover 28 August through 27 September. Android and web select
+  the current named period from that cycle, bound transaction reads to the derived
+  dates, and use the new security-invoker `budget_cycle_progress` view for flexible
+  spending. Android also adds Ask BudgetGuard, a deterministic local chat-style
+  investigator that explains Safe to spend from visible balances, remaining
+  commitments, pending payments, unplanned transactions, income, and overruns. It
+  does not call an external model or mutate financial records. Source verification
+  passed 35 TypeScript domain tests, TypeScript checks, the production web build,
+  Android parser/app unit tests, Android lint, debug APK assembly, deployment policy
+  and 14 controller tests. A disposable Supabase stack replayed all 11 migrations;
+  all 17 pgTAP files passed (113 tests) and schema lint reported no errors. Android
+  version is `0.6.1` (code 17); the debug APK SHA-256 is
+  `81319d3e10187abb546a2c2e24278ecf8ea9757ed07b25bddbde4bd458b56198`.
+  This is source-only: it is not reviewed, merged, deployed, or device-verified.
 
 - **2026-09-24 debt coaching deployment**: The `codex/debt-coaching`
   branch turns the existing recommendation into a monthly action plan with detailed
@@ -154,8 +172,9 @@ Read `docs/deployment-policy.md` before production work. The guardrails are acti
 on `main`.
 
 Live GitHub controls: protected main requires strict/up-to-date `all-tests`
-bound to GitHub Actions, one independent approving review, stale-review
-dismissal, last-push approval, code-owner review and resolved conversations.
+bound to GitHub Actions and resolved conversations. Independent and code-owner
+review are encouraged but are not merge requirements, per the owner's permanent
+2026-10-03 governance change.
 Administrators are included; force pushes/deletions are prohibited; squash only.
 Production and rollback environments permit only main; rollback requires owner
 approval. CI credentials are environment-scoped and host keys pinned.
@@ -185,8 +204,8 @@ Storage file bytes or provide off-host disaster recovery.
 
 Remaining governance setup: accept Lerato's organization/team invitation after it
 is successfully sent. Until then, both desktop GitHub connections authenticate as
-the owner and cannot independently approve an owner-authored PR. Main still requires
-independent review; any temporary exception must be explicitly authorized and restored.
+the owner. Independent review is not a protected-branch requirement, although it
+remains recommended for migrations and security-sensitive changes.
 Cloudflare email-Worker automated publishing still needs a scoped credential;
 its CI dry run is not a live deployment or proof of invoice delivery.
 
@@ -224,7 +243,7 @@ The user also wants a private forwarding inbox for PDF invoices and statements. 
 | Web companion | Overview, monthly plan, account lanes, activity and Quick Sort | TypeScript checks passed before initial push |
 | Payment initiation | None | Not implemented; never infer permission from an invoice |
 
-Android source build version: `0.6.0`, version code `16`. This does not prove which APK a user currently has installed.
+Android source build version: `0.6.1`, version code `17`. This does not prove which APK a user currently has installed.
 
 Before the initial push, `bun run test` (5 domain tests), `bun run test:email` (5 email parsing/signing tests), and `bun run check` passed. Android, function/Deno, database RLS, and real-email tests were not re-run as part of that push. The original CI checked domain/web and Android parser tests only; expanded guardrail CI is described above. Installed Android UI and real email delivery remain separate verification.
 

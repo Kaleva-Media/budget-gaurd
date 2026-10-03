@@ -74,6 +74,64 @@ export interface BudgetPeriod {
   startsOn: string;
   status: "draft" | "active" | "closed";
   carryoverCents: number;
+  cycleDay?: number;
+}
+
+export interface BudgetCycleBounds {
+  startsOn: Date;
+  endsOnExclusive: Date;
+}
+
+function assertCycleDay(cycleDay: number) {
+  if (!Number.isInteger(cycleDay) || cycleDay < 1 || cycleDay > 28) {
+    throw new RangeError("Budget cycle day must be between 1 and 28.");
+  }
+}
+
+export function budgetPeriodLabelFor(date: Date, cycleDay: number): string {
+  assertCycleDay(cycleDay);
+  const movesToNextMonth = cycleDay > 1 && date.getDate() >= cycleDay;
+  const label = new Date(date.getFullYear(), date.getMonth() + (movesToNextMonth ? 1 : 0), 1, 12);
+  return `${label.getFullYear()}-${String(label.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export function budgetCycleBounds(periodLabelStart: string, cycleDay: number): BudgetCycleBounds {
+  assertCycleDay(cycleDay);
+  const parts = periodLabelStart.split("-").map(Number);
+  const year = parts[0];
+  const month = parts[1];
+  if (year === undefined || month === undefined || !year || month < 1 || month > 12) {
+    throw new RangeError("Invalid budget period label.");
+  }
+  const startsOn = cycleDay === 1
+    ? new Date(year, month - 1, 1, 12)
+    : new Date(year, month - 2, cycleDay, 12);
+  const endsOnExclusive = cycleDay === 1
+    ? new Date(year, month, 1, 12)
+    : new Date(year, month - 1, cycleDay, 12);
+  return { startsOn, endsOnExclusive };
+}
+
+export function formatBudgetPeriodRange(periodLabelStart: string, cycleDay: number): string {
+  if (cycleDay === 1) {
+    const parts = periodLabelStart.split("-").map(Number);
+    const year = parts[0];
+    const month = parts[1];
+    if (year === undefined || month === undefined || !year || month < 1 || month > 12) {
+      throw new RangeError("Invalid budget period label.");
+    }
+    const start = new Date(year, month - 1, 1, 12);
+    const end = new Date(year, month, 1, 12);
+    const startName = new Intl.DateTimeFormat("en-ZA", { month: "long" }).format(start);
+    const endName = new Intl.DateTimeFormat("en-ZA", { month: "long", year: "numeric" }).format(end);
+    return `${startName} – ${endName}`;
+  }
+  const bounds = budgetCycleBounds(periodLabelStart, cycleDay);
+  const inclusiveEnd = new Date(bounds.endsOnExclusive);
+  inclusiveEnd.setDate(inclusiveEnd.getDate() - 1);
+  const start = new Intl.DateTimeFormat("en-ZA", { day: "numeric", month: "short" }).format(bounds.startsOn);
+  const end = new Intl.DateTimeFormat("en-ZA", { day: "numeric", month: "short", year: "numeric" }).format(inclusiveEnd);
+  return `${start} – ${end}`;
 }
 
 export type PlannedItemDirection = "income" | "expense";
@@ -197,6 +255,7 @@ export interface BudgetSummary {
 export function summariseBudgets(
   budgets: Budget[],
   now = new Date(),
+  period?: Pick<BudgetPeriod, "startsOn" | "cycleDay">,
 ): BudgetSummary {
   const limitCents = budgets.reduce((sum, budget) => sum + budget.limitCents, 0);
   const spentCents = budgets.reduce((sum, budget) => sum + budget.spentCents, 0);
@@ -206,8 +265,9 @@ export function summariseBudgets(
   );
   const effectiveSpend = spentCents + committedCents;
   const remainingCents = Math.max(0, limitCents - effectiveSpend);
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const daysRemaining = Math.max(1, lastDay - now.getDate() + 1);
+  const daysRemaining = period
+    ? daysRemainingInBudgetCycle(period.startsOn, period.cycleDay ?? 1, now)
+    : Math.max(1, new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate() + 1);
 
   return {
     limitCents,
@@ -217,6 +277,17 @@ export function summariseBudgets(
     safeToSpendTodayCents: Math.floor(remainingCents / daysRemaining),
     daysRemaining,
   };
+}
+
+export function daysRemainingInBudgetCycle(periodLabelStart: string, cycleDay: number, today: Date): number {
+  const bounds = budgetCycleBounds(periodLabelStart, cycleDay);
+  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
+  const millisecondsPerDay = 86_400_000;
+  if (day < bounds.startsOn) {
+    return Math.round((bounds.endsOnExclusive.getTime() - bounds.startsOn.getTime()) / millisecondsPerDay);
+  }
+  if (day >= bounds.endsOnExclusive) return 1;
+  return Math.max(1, Math.round((bounds.endsOnExclusive.getTime() - day.getTime()) / millisecondsPerDay));
 }
 
 export function budgetPercentage(budget: Budget): number {

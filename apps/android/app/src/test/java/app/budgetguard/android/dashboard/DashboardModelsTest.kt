@@ -61,6 +61,28 @@ class DashboardModelsTest {
     fun formatsBudgetPeriodAsAReadableRange() {
         assertEquals("September – October 2026", formatPeriodRange("2026-09-01"))
         assertEquals("December – January 2027", formatPeriodRange("2026-12-01"))
+        assertEquals("28 Aug – 27 Sep 2026", formatPeriodRange("2026-09-01", 28))
+    }
+
+    @Test
+    fun assignsSalaryDayToTheNextNamedCycle() {
+        assertEquals("2026-08-01", budgetPeriodLabelFor(LocalDate.of(2026, 8, 27), 28))
+        assertEquals("2026-09-01", budgetPeriodLabelFor(LocalDate.of(2026, 8, 28), 28))
+        assertEquals(LocalDate.of(2026, 8, 28), budgetCycleBounds("2026-09-01", 28).startsOn)
+        assertEquals(LocalDate.of(2026, 9, 28), budgetCycleBounds("2026-09-01", 28).endsOnExclusive)
+    }
+
+    @Test
+    fun usesCycleBoundaryForCurrentHeroAndDailyBudgetPace() {
+        val cycleEntity = Entity("personal", "Personal", "personal", true, 0, 28)
+        val cycleDashboard = dashboard(
+            entity = cycleEntity,
+            budgets = listOf(Budget("budget", "food", 70_000, 0, 0)),
+        )
+
+        assertEquals(HomeHeroMode.CURRENT_SAFE_TO_SPEND, cycleDashboard.homeHeroSummary(LocalDate.of(2026, 8, 30)).mode)
+        assertEquals(29, cycleDashboard.budgetSummary(LocalDate.of(2026, 8, 30)).daysRemaining)
+        assertEquals(2_413, cycleDashboard.budgetSummary(LocalDate.of(2026, 8, 30)).safeToSpendTodayCents)
     }
 
     @Test
@@ -189,13 +211,14 @@ class DashboardModelsTest {
 
     private fun dashboard(
         selectedPeriod: BudgetPeriod = period,
+        entity: Entity = Entity("personal", "Personal", "personal", true, 0),
         budgets: List<Budget> = emptyList(),
         plannedItems: List<PlannedItem> = emptyList(),
     ) = MobileDashboard(
-        month = formatPeriodRange(selectedPeriod.startsOn),
+        month = formatPeriodRange(selectedPeriod.startsOn, entity.budgetCycleDay),
         profileDisplayName = "Edward",
-        entity = Entity("personal", "Personal", "personal", true, 0),
-        entities = listOf(Entity("personal", "Personal", "personal", true, 0)),
+        entity = entity,
+        entities = listOf(entity),
         period = selectedPeriod,
         periods = listOf(selectedPeriod),
         accounts = emptyList(),

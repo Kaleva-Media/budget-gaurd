@@ -300,7 +300,7 @@ function Sidebar({ view, setView, open, close, reviewCount }: { view: View; setV
 
 function Overview({ data, goTo }: { data: DashboardData; goTo: (view: View) => void }) {
   const cashflow = summariseCashflow(data.period, data.plannedItems);
-  const budget = summariseBudgets(data.budgets);
+  const budget = summariseBudgets(data.budgets, new Date(), data.period);
   const needsReview = data.transactions.filter((transaction) => transaction.needsReview).length;
   const operational = data.accounts.filter((account) => account.role === "operational");
   return (

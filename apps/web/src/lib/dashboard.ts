@@ -1,5 +1,8 @@
 import {
+  budgetCycleBounds,
+  budgetPeriodLabelFor,
   demoDashboard,
+  formatBudgetPeriodRange,
   type DashboardData,
   type PlannedItem,
 } from "@budget-guard/domain";
@@ -73,21 +76,26 @@ interface PaymentConfirmationRow {
   planned_item_id: string;
 }
 
+function toLocalIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 export async function loadDashboard(): Promise<DashboardData> {
   if (!isSupabaseConfigured || !supabase) return demoDashboard;
 
   const entityResult = await supabase
     .from("entities")
-    .select("id")
+    .select("id,budget_cycle_day")
     .eq("is_default", true)
     .single();
   if (entityResult.error) throw entityResult.error;
   const entityId = entityResult.data.id as string;
+  const cycleDay = (entityResult.data.budget_cycle_day as number | null) ?? 1;
 
-  const start = new Date();
-  start.setDate(1);
-  start.setHours(0, 0, 0, 0);
-  const periodStart = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`;
+  const periodStart = budgetPeriodLabelFor(new Date(), cycleDay);
+  const cycle = budgetCycleBounds(periodStart, cycleDay);
+  const cycleStart = toLocalIsoDate(cycle.startsOn);
+  const cycleEnd = toLocalIsoDate(cycle.endsOnExclusive);
 
   let periodResult = await supabase
     .from("budget_periods")
@@ -125,7 +133,7 @@ export async function loadDashboard(): Promise<DashboardData> {
         .eq("category_scope", "personal")
         .order("sort_order"),
       supabase
-        .from("budget_progress")
+        .from("budget_cycle_progress")
         .select("id,category_id,limit_cents,spent_cents,committed_cents")
         .eq("entity_id", entityId)
         .eq("period_start", periodStart),
@@ -142,7 +150,8 @@ export async function loadDashboard(): Promise<DashboardData> {
         .from("transactions")
         .select("id,account_id,category_id,occurred_on,occurred_at,amount_cents,status,kind,source,merchant,description,needs_review,planned_item_matches(planned_item_id)")
         .eq("entity_id", entityId)
-        .gte("occurred_on", periodStart)
+        .gte("occurred_on", cycleStart)
+        .lt("occurred_on", cycleEnd)
         .order("occurred_on", { ascending: false })
         .order("occurred_at", { ascending: false, nullsFirst: false })
         .limit(100),
@@ -167,12 +176,13 @@ export async function loadDashboard(): Promise<DashboardData> {
   const transactions = (transactionsResult.data ?? []) as TransactionRow[];
 
   return {
-    month: new Intl.DateTimeFormat("en-ZA", { month: "long", year: "numeric" }).format(new Date()),
+    month: formatBudgetPeriodRange(periodStart, cycleDay),
     period: {
       id: period.id,
       startsOn: period.starts_on,
       status: period.status,
       carryoverCents: period.carryover_cents,
+      cycleDay,
     },
     accounts: accounts.map((row) => ({
       id: row.id,
