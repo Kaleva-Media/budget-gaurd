@@ -16,10 +16,11 @@ This document records repository state and historical observations, not a fresh 
   implying that an existing match is missing. The picker uses a title and list
   rather than combining `AlertDialog.setMessage` with `setItems`, because that
   Android layout suppressed the list on the user's device. Android advances to
-  `0.6.5` (code 21). Source verification passed `:parser:test`, `:app:testDebugUnitTest`,
+  `0.6.6` (code 22), ensuring the corrected APK updates the already-installed
+  `0.6.5` build. Source verification passed `:parser:test`, `:app:testDebugUnitTest`,
   `:app:lintDebug`, and `:app:assembleDebug` (76 unit tests: 20 parser and 56
   app). The configured debug APK SHA-256 is
-  `57faa012ccc6c304805e079073a0c8c46bf3c4d98d4772ebdf832e1838145799`.
+  `676b87518303c4308a79320342bab8c676d9cbb0a6e86cb32c75452597a0450b`.
   This source change has not been merged or deployed.
 
 - **2026-10-05 Android manual transaction matching deployment**: Activity now
