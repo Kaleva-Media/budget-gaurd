@@ -2938,8 +2938,9 @@ class MainActivity : ComponentActivity() {
             }
         }
         AlertDialog.Builder(this)
-            .setTitle("Match ${transaction.merchant}")
-            .setMessage("Choose a planned item from ${data.month}. Items already satisfied stay visible so you can see why they cannot receive another match.")
+            // Android's standard AlertDialog message view replaces its list view on
+            // some devices. Keep this as a title + list so the plan rows are visible.
+            .setTitle("Choose a plan item · ${data.month}")
             .setItems(options.toTypedArray()) { _, index ->
                 val option = matchOptions[index]
                 if (option.isAvailable) {
