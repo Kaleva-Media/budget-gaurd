@@ -76,7 +76,7 @@ import app.budgetguard.android.dashboard.formatZar
 import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.dashboard.exactTransactionMatchSuggestions
-import app.budgetguard.android.dashboard.manualMatchCandidates
+import app.budgetguard.android.dashboard.manualMatchOptions
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -2883,13 +2883,13 @@ class MainActivity : ComponentActivity() {
         val existing = transaction.plannedItemIds.map { plannedId ->
             plannedId to data.plannedItems.firstOrNull { it.id == plannedId }
         }
-        val canAdd = data.manualMatchCandidates(transaction).isNotEmpty()
+        val canInspectAnother = data.manualMatchOptions(transaction).isNotEmpty()
         val options = buildList {
             existing.forEach { (plannedId, item) ->
                 val amount = transaction.plannedItemMatchAmounts[plannedId]
                 add("Remove ${item?.name ?: "planned item"}${amount?.let { " · ${formatZar(it)}" }.orEmpty()}")
             }
-            if (canAdd) add("+ Match another planned item")
+            if (canInspectAnother) add("+ Match or inspect another plan item")
         }
         AlertDialog.Builder(this)
             .setTitle("Manage transaction matches")
@@ -2906,33 +2906,80 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showManualMatchPicker(data: MobileDashboard, transaction: Transaction) {
-        val candidates = data.manualMatchCandidates(transaction)
-        if (candidates.isEmpty()) {
+        val matchOptions = data.manualMatchOptions(transaction)
+        if (matchOptions.isEmpty()) {
             AlertDialog.Builder(this)
-                .setTitle("No available plan items")
-                .setMessage("There are no unfinished ${if (transaction.amountCents < 0) "expenses" else "income items"} in ${data.month} that can receive the unallocated amount from this transaction.")
+                .setTitle("No plan items in this cycle")
+                .setMessage("There are no ${if (transaction.amountCents < 0) "expense" else "income"} plan items in ${data.month}. The transaction is still unmatched.")
                 .setPositiveButton("OK", null)
                 .show()
             return
         }
         val transactionAccount = data.accounts.firstOrNull { it.id == transaction.accountId }
-        val options = candidates.map { item ->
-            val remaining = (item.plannedCents - item.actualCents).coerceAtLeast(0L)
+        val options = matchOptions.map { option ->
+            val item = option.plannedItem
             val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
             val accountText = when {
                 item.accountId == null -> "No plan account"
                 item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
                 else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
             }
-            "${item.name} · ${formatZar(remaining)} remaining\n$accountText"
+            if (option.isAvailable) {
+                val progress = if (item.actualCents > 0L) " · ${formatZar(item.actualCents)} matched" else ""
+                "${item.name} · ${formatZar(option.remainingCents)} remaining$progress\n$accountText"
+            } else {
+                val matchedCount = option.matchedTransactions.size
+                val matchStatus = if (matchedCount == 0) {
+                    "Already fully matched"
+                } else {
+                    "Already matched · $matchedCount ${if (matchedCount == 1) "transaction" else "transactions"}"
+                }
+                "${item.name} · $matchStatus\nTap to see the existing match"
+            }
         }
         AlertDialog.Builder(this)
             .setTitle("Match ${transaction.merchant}")
-            .setMessage("Choose a planned item from ${data.month}. Different amounts and accounts are allowed because you are selecting the match yourself.")
+            .setMessage("Choose a planned item from ${data.month}. Items already satisfied stay visible so you can see why they cannot receive another match.")
             .setItems(options.toTypedArray()) { _, index ->
-                showManualMatchAmountDialog(transaction, candidates[index])
+                val option = matchOptions[index]
+                if (option.isAvailable) {
+                    showManualMatchAmountDialog(transaction, option.plannedItem)
+                } else {
+                    showExistingPlanMatchDetails(option.plannedItem, option.matchedTransactions)
+                }
             }
             .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showExistingPlanMatchDetails(
+        item: PlannedItem,
+        matchingTransactions: List<Transaction>,
+    ) {
+        val matchIsOutsideCycle = matchingTransactions.isEmpty()
+        val matchDetails = if (matchIsOutsideCycle) {
+            "Its linked transaction is not in the currently loaded cycle."
+        } else {
+            matchingTransactions.joinToString("\n") { transaction ->
+                val amount = transaction.plannedItemMatchAmounts[item.id]
+                buildString {
+                    append("• ${transaction.merchant} · ${formatTransactionDate(transaction.occurredOn)}")
+                    if (amount != null) append(" · ${formatZar(amount)}")
+                }
+            }
+        }
+        val guidance = if (matchIsOutsideCycle) {
+            "Switch to the cycle containing the linked transaction, then use Manage matches there before replacing it."
+        } else {
+            "Use Manage matches on the linked transaction and remove that match first."
+        }
+        AlertDialog.Builder(this)
+            .setTitle("${item.name} is already matched")
+            .setMessage(
+                "BudgetGuard currently counts ${formatZar(item.actualCents)} against ${formatZar(item.plannedCents)} planned.\n\n" +
+                    "$matchDetails\n\n$guidance",
+            )
+            .setPositiveButton("OK", null)
             .show()
     }
 

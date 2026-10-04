@@ -240,18 +240,42 @@ data class Transaction(
 }
 
 fun MobileDashboard.manualMatchCandidates(transaction: Transaction): List<PlannedItem> {
+    return manualMatchOptions(transaction)
+        .filter(ManualMatchOption::isAvailable)
+        .map(ManualMatchOption::plannedItem)
+}
+
+data class ManualMatchOption(
+    val plannedItem: PlannedItem,
+    val remainingCents: Long,
+    val matchedTransactions: List<Transaction>,
+) {
+    val isAvailable: Boolean
+        get() = remainingCents > 0L
+}
+
+fun MobileDashboard.manualMatchOptions(transaction: Transaction): List<ManualMatchOption> {
     if (!transaction.isEligibleForPlanMatching() || transaction.unallocatedMatchCents() <= 0L) return emptyList()
     val direction = if (transaction.amountCents < 0) "expense" else "income"
     return plannedItems
         .filter { item ->
             item.direction == direction &&
-                item.actualCents < item.plannedCents &&
                 item.id !in transaction.plannedItemIds
         }
+        .map { item ->
+            ManualMatchOption(
+                plannedItem = item,
+                remainingCents = (item.plannedCents - item.actualCents).coerceAtLeast(0L),
+                matchedTransactions = transactions.filter { candidate ->
+                    item.id in candidate.plannedItemIds
+                },
+            )
+        }
         .sortedWith(
-            compareByDescending<PlannedItem> { it.accountId == transaction.accountId }
-                .thenBy { it.dueDay ?: 32 }
-                .thenBy { it.name.lowercase(Locale.forLanguageTag("en-ZA")) },
+            compareByDescending<ManualMatchOption>(ManualMatchOption::isAvailable)
+                .thenByDescending { it.plannedItem.accountId == transaction.accountId }
+                .thenBy { it.plannedItem.dueDay ?: 32 }
+                .thenBy { it.plannedItem.name.lowercase(Locale.forLanguageTag("en-ZA")) },
         )
 }
 

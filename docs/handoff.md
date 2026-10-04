@@ -6,6 +6,20 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-05 Android match-status picker source change**: The manual match
+  picker no longer hides fully satisfied plan items. It lists them after available
+  items with an “Already matched” status; opening one shows the known linked
+  transaction merchant, date, and allocated amount, or explains that the link is
+  outside the currently loaded cycle. The user is directed to remove the existing
+  link through that transaction's Manage matches action before replacing it. A
+  cycle with no same-direction plan items now says so explicitly instead of
+  implying that an existing match is missing. Android advances to `0.6.5` (code
+  21). Source verification passed `:parser:test`, `:app:testDebugUnitTest`,
+  `:app:lintDebug`, and `:app:assembleDebug` (76 unit tests: 20 parser and 56
+  app). The configured debug APK SHA-256 is
+  `277c5fe809d35ed484f881212345b1e10947a2fedf6b97501a7a94634cec816a`.
+  This source change has not been merged or deployed.
+
 - **2026-10-05 Android manual transaction matching deployment**: Activity now
   exposes “Match to plan” on eligible posted and pending transactions instead of
   relying only on exact automatic suggestions. The user selects any unfinished

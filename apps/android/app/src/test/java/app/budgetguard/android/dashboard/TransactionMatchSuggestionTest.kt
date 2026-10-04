@@ -94,6 +94,27 @@ class TransactionMatchSuggestionTest {
     }
 
     @Test
+    fun `manual picker keeps settled items visible with their matching transaction`() {
+        val levies = plannedExpense("levies", 166_942, actualCents = 166_942)
+        val existingMatch = transaction(
+            "existing",
+            -166_942,
+            plannedItemIds = listOf("levies"),
+            plannedItemMatchAmounts = mapOf("levies" to 166_942),
+        )
+        val unmatched = transaction("unmatched", -166_942)
+
+        val option = dashboard(listOf(levies), listOf(existingMatch, unmatched))
+            .manualMatchOptions(unmatched)
+            .single()
+
+        assertEquals("levies", option.plannedItem.id)
+        assertEquals(0, option.remainingCents)
+        assertEquals(false, option.isAvailable)
+        assertEquals(listOf("existing"), option.matchedTransactions.map(Transaction::id))
+    }
+
+    @Test
     fun `manual matching exposes only the unallocated transaction amount`() {
         val payment = transaction(
             "payment",
