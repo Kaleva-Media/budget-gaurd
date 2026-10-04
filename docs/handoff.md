@@ -1,12 +1,12 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-05. Production application baseline: `36e9e93` (`main`);
+Updated: 2026-10-05. Production application baseline: `2f21bc5` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
 
-- **2026-10-05 Android manual transaction matching source change**: Activity now
+- **2026-10-05 Android manual transaction matching deployment**: Activity now
   exposes “Match to plan” on eligible posted and pending transactions instead of
   relying only on exact automatic suggestions. The user selects any unfinished
   same-direction item in the active cycle and confirms an allocation capped by the
@@ -20,7 +20,15 @@ This document records repository state and historical observations, not a fresh 
   `:parser:test`, `:app:testDebugUnitTest`, `:app:lintDebug`, and
   `:app:assembleDebug` (75 unit tests: 20 parser and 55 app). The debug APK SHA-256
   is `6981b556fe63e6083c51eb55aca95c4355e3e6e92f3937571bd724124d69e7b6`.
-  This source change has not been merged or deployed.
+  PR [#32](https://github.com/Kaleva-Media/budget-gaurd/pull/32) was squash-merged
+  as `2f21bc5`. Main CI run
+  [37239308935](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37239308935)
+  passed every suite and the required `all-tests` gate. Production deployment run
+  [37239457157](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37239457157)
+  restore-tested its backup, applied zero migrations, activated the exact tested
+  revision, and passed controller smoke checks. The public version endpoint reports
+  `2f21bc58547b4c7d085a12a71bed7ece2aa0adbf`. Installed-device behaviour remains
+  unverified.
 
 - **2026-10-03 Android transaction-match suggestions deployment**: Android now
   proposes confirmation-only links when one active-cycle transaction and one plan
