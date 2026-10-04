@@ -64,6 +64,47 @@ class TransactionMatchSuggestionTest {
         assertEquals(0, dashboard(listOf(expense), listOf(payment)).transactionsNeedingReview)
     }
 
+    @Test
+    fun `manual matching offers unfinished items even when amount and account differ`() {
+        val expense = plannedExpense("rent", 2_200_000, accountId = "cheque")
+        val payment = transaction("payment", -2_150_000, accountId = "credit")
+
+        val candidates = dashboard(listOf(expense), listOf(payment)).manualMatchCandidates(payment)
+
+        assertEquals(listOf("rent"), candidates.map(PlannedItem::id))
+    }
+
+    @Test
+    fun `manual matching excludes settled wrong-direction and existing items`() {
+        val settled = plannedExpense("settled", 50_000, actualCents = 50_000)
+        val alreadyLinked = plannedExpense("linked", 60_000)
+        val income = PlannedItem("salary", "income", "income", "Salary", 70_000, 0, null, null, 1, 0)
+        val payment = transaction(
+            "payment",
+            -60_000,
+            plannedItemIds = listOf("linked"),
+            plannedItemMatchAmounts = mapOf("linked" to 20_000),
+        )
+
+        assertTrue(
+            dashboard(listOf(settled, alreadyLinked, income), listOf(payment))
+                .manualMatchCandidates(payment)
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun `manual matching exposes only the unallocated transaction amount`() {
+        val payment = transaction(
+            "payment",
+            -100_000,
+            plannedItemIds = listOf("first"),
+            plannedItemMatchAmounts = mapOf("first" to 35_000),
+        )
+
+        assertEquals(65_000, payment.unallocatedMatchCents())
+    }
+
     private fun plannedExpense(
         id: String,
         plannedCents: Long,
@@ -87,6 +128,7 @@ class TransactionMatchSuggestionTest {
         amountCents: Long,
         accountId: String = "cheque",
         plannedItemIds: List<String> = emptyList(),
+        plannedItemMatchAmounts: Map<String, Long> = emptyMap(),
     ) = Transaction(
         id = id,
         accountId = accountId,
@@ -100,6 +142,7 @@ class TransactionMatchSuggestionTest {
         description = "Payment",
         needsReview = true,
         plannedItemIds = plannedItemIds,
+        plannedItemMatchAmounts = plannedItemMatchAmounts,
     )
 
     private fun dashboard(

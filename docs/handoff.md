@@ -1,10 +1,26 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-03. Production application baseline: `36e9e93` (`main`);
+Updated: 2026-10-05. Production application baseline: `36e9e93` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **2026-10-05 Android manual transaction matching source change**: Activity now
+  exposes “Match to plan” on eligible posted and pending transactions instead of
+  relying only on exact automatic suggestions. The user selects any unfinished
+  same-direction item in the active cycle and confirms an allocation capped by the
+  transaction's unallocated amount and the plan's remaining amount. This supports
+  different transaction amounts, intentional account mismatches with a warning,
+  partial payments, and splitting one transaction across multiple items. Existing
+  links show their allocated amounts and can be removed without deleting either
+  record; review state is restored only when the transaction is uncategorized and
+  has no remaining links. Transfers and reversals stay ineligible. Android advances
+  to `0.6.4` (code 20). Source verification passed on 2026-10-05 with
+  `:parser:test`, `:app:testDebugUnitTest`, `:app:lintDebug`, and
+  `:app:assembleDebug` (75 unit tests: 20 parser and 55 app). The debug APK SHA-256
+  is `6981b556fe63e6083c51eb55aca95c4355e3e6e92f3937571bd724124d69e7b6`.
+  This source change has not been merged or deployed.
 
 - **2026-10-03 Android transaction-match suggestions deployment**: Android now
   proposes confirmation-only links when one active-cycle transaction and one plan

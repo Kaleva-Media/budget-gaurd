@@ -223,7 +223,37 @@ data class Transaction(
     val description: String,
     val needsReview: Boolean,
     val plannedItemIds: List<String> = emptyList(),
-)
+    val plannedItemMatchAmounts: Map<String, Long> = emptyMap(),
+) {
+    fun isEligibleForPlanMatching(): Boolean =
+        amountCents != 0L &&
+            amountCents != Long.MIN_VALUE &&
+            status in setOf("posted", "pending") &&
+            kind !in setOf("transfer", "reversal")
+
+    fun unallocatedMatchCents(): Long {
+        if (!isEligibleForPlanMatching()) return 0L
+        if (plannedItemIds.isNotEmpty() && plannedItemMatchAmounts.isEmpty()) return 0L
+        val allocated = plannedItemMatchAmounts.values.sum().coerceAtLeast(0L)
+        return (kotlin.math.abs(amountCents) - allocated).coerceAtLeast(0L)
+    }
+}
+
+fun MobileDashboard.manualMatchCandidates(transaction: Transaction): List<PlannedItem> {
+    if (!transaction.isEligibleForPlanMatching() || transaction.unallocatedMatchCents() <= 0L) return emptyList()
+    val direction = if (transaction.amountCents < 0) "expense" else "income"
+    return plannedItems
+        .filter { item ->
+            item.direction == direction &&
+                item.actualCents < item.plannedCents &&
+                item.id !in transaction.plannedItemIds
+        }
+        .sortedWith(
+            compareByDescending<PlannedItem> { it.accountId == transaction.accountId }
+                .thenBy { it.dueDay ?: 32 }
+                .thenBy { it.name.lowercase(Locale.forLanguageTag("en-ZA")) },
+        )
+}
 
 data class TransactionMatchSuggestion(
     val transaction: Transaction,
@@ -234,10 +264,7 @@ data class TransactionMatchSuggestion(
 fun MobileDashboard.exactTransactionMatchSuggestions(): List<TransactionMatchSuggestion> {
     val eligibleTransactions = transactions.filter { transaction ->
         transaction.plannedItemIds.isEmpty() &&
-            transaction.amountCents != 0L &&
-            transaction.amountCents != Long.MIN_VALUE &&
-            transaction.status in setOf("posted", "pending") &&
-            transaction.kind !in setOf("transfer", "reversal")
+            transaction.isEligibleForPlanMatching()
     }
     val eligibleItems = plannedItems.filter { item ->
         item.actualCents < item.plannedCents

@@ -204,7 +204,7 @@ class SupabaseCollectorClient private constructor(
                 }
             }
             .decodeList<MatchRow>()
-        val matchesByTransaction = matchRows.groupBy({ it.transactionId }, { it.plannedItemId })
+        val matchesByTransaction = matchRows.groupBy(MatchRow::transactionId)
         val invoiceInbox = client.from("invoice_inboxes")
             .select {
                 filter { eq("is_active", true) }
@@ -320,7 +320,9 @@ class SupabaseCollectorClient private constructor(
                     merchant = row.merchant ?: "Unknown transaction",
                     description = row.description.orEmpty(),
                     needsReview = row.needsReview,
-                    plannedItemIds = matchesByTransaction[row.id].orEmpty(),
+                    plannedItemIds = matchesByTransaction[row.id].orEmpty().map(MatchRow::plannedItemId),
+                    plannedItemMatchAmounts = matchesByTransaction[row.id].orEmpty()
+                        .associate { match -> match.plannedItemId to match.amountCents },
                 )
             },
             invoiceInbox = invoiceInbox?.let { InvoiceInbox(it.address) },
@@ -796,9 +798,41 @@ class SupabaseCollectorClient private constructor(
             ),
         ) {
             onConflict = "planned_item_id,transaction_id"
-            ignoreDuplicates = true
+            ignoreDuplicates = false
         }
         client.from("transactions").update(TransactionReviewUpdate(needsReview = false)) {
+            filter {
+                eq("id", transactionId)
+                eq("user_id", userId)
+            }
+        }
+    }
+
+    suspend fun removePlannedItemMatch(
+        plannedItemId: String,
+        transactionId: String,
+        transactionHasCategory: Boolean,
+    ) {
+        val userId = authenticatedUserId()
+        client.from("planned_item_matches").delete {
+            filter {
+                eq("planned_item_id", plannedItemId)
+                eq("transaction_id", transactionId)
+                eq("user_id", userId)
+            }
+        }
+        val remainingMatches = client.from("planned_item_matches")
+            .select {
+                filter {
+                    eq("transaction_id", transactionId)
+                    eq("user_id", userId)
+                }
+                limit(1)
+            }
+            .decodeList<MatchRow>()
+        client.from("transactions").update(
+            TransactionReviewUpdate(needsReview = remainingMatches.isEmpty() && !transactionHasCategory),
+        ) {
             filter {
                 eq("id", transactionId)
                 eq("user_id", userId)
@@ -1402,6 +1436,7 @@ private data class TransactionRow(
 private data class MatchRow(
     @SerialName("transaction_id") val transactionId: String,
     @SerialName("planned_item_id") val plannedItemId: String,
+    @SerialName("amount_cents") val amountCents: Long,
 )
 
 @Serializable

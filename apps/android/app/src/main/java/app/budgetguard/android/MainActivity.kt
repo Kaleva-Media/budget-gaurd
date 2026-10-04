@@ -76,6 +76,7 @@ import app.budgetguard.android.dashboard.formatZar
 import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.dashboard.exactTransactionMatchSuggestions
+import app.budgetguard.android.dashboard.manualMatchCandidates
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -2777,11 +2778,13 @@ class MainActivity : ComponentActivity() {
             val account = data.accounts.firstOrNull { it.id == transaction.accountId }?.name ?: "Account"
             addView(label("${formatTransactionDate(transaction.occurredOn)} · $account · ${transaction.status}", 11f, Palette.muted).apply { maxLines = 1 }.withTopMargin(3))
             if (!compact) {
-                val matchedNames = transaction.plannedItemIds.mapNotNull { plannedId ->
-                    data.plannedItems.firstOrNull { it.id == plannedId }?.name
+                val matchedDetails = transaction.plannedItemIds.map { plannedId ->
+                    val name = data.plannedItems.firstOrNull { it.id == plannedId }?.name ?: "Planned item"
+                    val amount = transaction.plannedItemMatchAmounts[plannedId]
+                    if (amount == null) name else "$name · ${formatZar(amount)}"
                 }
-                if (matchedNames.isNotEmpty()) {
-                    addView(label("✓ Matched to ${matchedNames.joinToString()}", 11f, Palette.moss, bold = true).withTopMargin(7))
+                if (matchedDetails.isNotEmpty()) {
+                    addView(label("✓ Matched to ${matchedDetails.joinToString("\n")}", 11f, Palette.moss, bold = true).withTopMargin(7))
                 }
                 val category = data.categories.firstOrNull { it.id == transaction.categoryId }
                 val categoryButton = action(category?.name ?: "Choose category", primary = false, compact = true).apply {
@@ -2792,6 +2795,20 @@ class MainActivity : ComponentActivity() {
                     setOnClickListener { showCategoryPicker(data, transaction) }
                 }
                 addView(categoryButton.withTopMargin(9))
+                if (transaction.plannedItemIds.isNotEmpty() || transaction.isEligibleForPlanMatching()) {
+                    addView(action(
+                        if (transaction.plannedItemIds.isEmpty()) "Match to plan" else "Manage matches",
+                        primary = false,
+                        compact = true,
+                    ).apply {
+                        contentDescription = if (transaction.plannedItemIds.isEmpty()) {
+                            "Match ${transaction.merchant} to a planned item"
+                        } else {
+                            "Manage plan matches for ${transaction.merchant}"
+                        }
+                        setOnClickListener { showTransactionMatchManager(data, transaction) }
+                    }.withTopMargin(7))
+                }
             }
         }
         row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -2856,6 +2873,164 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, "Couldn't confirm that match.", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private fun showTransactionMatchManager(data: MobileDashboard, transaction: Transaction) {
+        if (transaction.plannedItemIds.isEmpty()) {
+            showManualMatchPicker(data, transaction)
+            return
+        }
+        val existing = transaction.plannedItemIds.map { plannedId ->
+            plannedId to data.plannedItems.firstOrNull { it.id == plannedId }
+        }
+        val canAdd = data.manualMatchCandidates(transaction).isNotEmpty()
+        val options = buildList {
+            existing.forEach { (plannedId, item) ->
+                val amount = transaction.plannedItemMatchAmounts[plannedId]
+                add("Remove ${item?.name ?: "planned item"}${amount?.let { " · ${formatZar(it)}" }.orEmpty()}")
+            }
+            if (canAdd) add("+ Match another planned item")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Manage transaction matches")
+            .setItems(options.toTypedArray()) { _, index ->
+                if (index < existing.size) {
+                    val (plannedId, item) = existing[index]
+                    showRemoveTransactionMatchConfirmation(transaction, plannedId, item?.name ?: "planned item")
+                } else {
+                    showManualMatchPicker(data, transaction)
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showManualMatchPicker(data: MobileDashboard, transaction: Transaction) {
+        val candidates = data.manualMatchCandidates(transaction)
+        if (candidates.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("No available plan items")
+                .setMessage("There are no unfinished ${if (transaction.amountCents < 0) "expenses" else "income items"} in ${data.month} that can receive the unallocated amount from this transaction.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+        val transactionAccount = data.accounts.firstOrNull { it.id == transaction.accountId }
+        val options = candidates.map { item ->
+            val remaining = (item.plannedCents - item.actualCents).coerceAtLeast(0L)
+            val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
+            val accountText = when {
+                item.accountId == null -> "No plan account"
+                item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
+                else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
+            }
+            "${item.name} · ${formatZar(remaining)} remaining\n$accountText"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Match ${transaction.merchant}")
+            .setMessage("Choose a planned item from ${data.month}. Different amounts and accounts are allowed because you are selecting the match yourself.")
+            .setItems(options.toTypedArray()) { _, index ->
+                showManualMatchAmountDialog(transaction, candidates[index])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showManualMatchAmountDialog(
+        transaction: Transaction,
+        item: PlannedItem,
+    ) {
+        val unallocated = transaction.unallocatedMatchCents()
+        val planRemaining = (item.plannedCents - item.actualCents).coerceAtLeast(0L)
+        val maximum = minOf(unallocated, planRemaining)
+        if (maximum <= 0L) {
+            Toast.makeText(this, "There is no amount left to match.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val container = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(12)) }
+        container.addView(label(
+            "${transaction.merchant} has ${formatZar(unallocated)} unallocated. ${item.name} has ${formatZar(planRemaining)} remaining.",
+            13f,
+            Palette.muted,
+        ))
+        if (item.accountId != null && item.accountId != transaction.accountId) {
+            container.addView(label(
+                "The planned account differs from the transaction account. Confirm only if this is intentional.",
+                12f,
+                Palette.coral,
+                bold = true,
+            ).withTopMargin(9))
+        }
+        val amount = input("Amount to match in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
+            setText(BigDecimal.valueOf(maximum, 2).toPlainString())
+            selectAll()
+        }
+        container.addView(amount.withTopMargin(12))
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Confirm manual match")
+            .setView(container)
+            .setPositiveButton("Confirm match", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val cents = parseMoneyCents(amount.text.toString())
+                if (cents == null || cents > maximum) {
+                    Toast.makeText(
+                        this,
+                        "Enter an amount up to ${formatZar(maximum)}.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@setOnClickListener
+                }
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.confirmPlannedItemMatch(
+                            plannedItemId = item.id,
+                            transactionId = transaction.id,
+                            amountCents = cents,
+                        ) ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        dialog.dismiss()
+                        Toast.makeText(this@MainActivity, "Matched to ${item.name}.", Toast.LENGTH_SHORT).show()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                        Toast.makeText(this@MainActivity, "Couldn't save that match.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showRemoveTransactionMatchConfirmation(
+        transaction: Transaction,
+        plannedItemId: String,
+        plannedItemName: String,
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Remove this match?")
+            .setMessage("${transaction.merchant} will no longer count toward $plannedItemName. No transaction or planned item will be deleted.")
+            .setPositiveButton("Remove match") { _, _ ->
+                lifecycleScope.launch {
+                    runCatching {
+                        applicationState.collectorClient?.removePlannedItemMatch(
+                            plannedItemId = plannedItemId,
+                            transactionId = transaction.id,
+                            transactionHasCategory = transaction.categoryId != null,
+                        ) ?: error("BudgetGuard is not configured.")
+                    }.onSuccess {
+                        Toast.makeText(this@MainActivity, "Match removed.", Toast.LENGTH_SHORT).show()
+                        loadDashboard(keepContentVisible = true)
+                    }.onFailure {
+                        Toast.makeText(this@MainActivity, "Couldn't remove that match.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Keep match", null)
+            .show()
     }
 
     private fun accountCard(account: Account): View {
