@@ -6,6 +6,23 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-05 Android match-picker and fixed-header source change**: The
+  manual transaction-match picker is now a 91%-height bottom sheet instead of a
+  platform text list. A fixed transaction summary shows the merchant,
+  unallocated amount, cycle, and account; plan items appear as separated,
+  accessible cards with explicit remaining or already-matched states, account
+  routing, partial progress, and at least 82dp row height. Search filters by plan
+  or account name, while the summary, search area, and close action stay fixed as
+  the plan list scrolls. The main BudgetGuard/entity/cycle header now also sits
+  outside each screen's `ScrollView`, so it remains visible across Home, Ask
+  BudgetGuard, Debt freedom, Activity, Invoices, Accounts, and Profile & sync.
+  Android advances to `0.6.7` (code 23). Source verification passed
+  `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
+  configured debug APK SHA-256 is
+  `2fdce5f9c964c84e699d91f9ad36f5a4189b241ebf2066d6fad30af0e218c30e`.
+  This source change has not been merged or deployed; installed-device behaviour
+  remains unverified.
+
 - **2026-10-05 Android match-status picker source change**: The manual match
   picker no longer hides fully satisfied plan items. It lists them after available
   items with an “Already matched” status; opening one shows the known linked

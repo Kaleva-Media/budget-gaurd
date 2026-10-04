@@ -427,6 +427,24 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Palette.paper)
         }
+        val screenTitle = when (selectedScreen) {
+            Screen.HOME -> "Home"
+            Screen.ASSISTANT -> "Budget assistant"
+            Screen.DEBT -> "Debt freedom"
+            Screen.TRANSACTIONS -> "Activity"
+            Screen.INVOICES -> "Invoices"
+            Screen.ACCOUNTS -> "Accounts"
+            Screen.PROFILE -> "Profile & sync"
+        }
+        val fixedHeader = vertical().apply {
+            setBackgroundColor(Palette.paper)
+            elevation = dp(4).toFloat()
+            addView(buildHeader(screenTitle).apply {
+                setPadding(dp(20), dp(14), dp(20), dp(12))
+            })
+            addView(divider())
+        }
+        root.addView(fixedHeader)
         val scroller = ScrollView(this).apply {
             isFillViewport = true
             addView(when (selectedScreen) {
@@ -449,8 +467,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildHome(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Home"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
 
         val cashflow = data.cashflowSummary()
         val heroSummary = data.homeHeroSummary()
@@ -726,8 +743,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildBudgetAssistant(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
-        content.addView(buildHeader("Budget assistant"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 32)
         content.addView(label("Ask what happened.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label(
             "This first version investigates normalized data already loaded for ${data.entity.name}. It runs locally and does not send your transactions or questions to an AI provider.",
@@ -811,8 +827,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildDebtFreedom(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
-        content.addView(buildHeader("Debt freedom"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 32)
         content.addView(label("Your route out of debt.", 30f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label(
             "A practical monthly plan, based on ${data.entity.name}'s balances, income, expenses, and flexible budgets.",
@@ -1508,8 +1523,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildTransactions(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Activity"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Every movement.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Tap a category to sort a payment. Pending card reservations stay separate from posted spend.", 14f, Palette.muted).withTopMargin(7))
 
@@ -1548,8 +1562,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildAccounts(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Accounts"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Every account has a job.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("These accounts belong to ${data.entity.name}. The SMS identifier must match the account label in the bank notification; FNB accounts use the visible suffix.", 14f, Palette.muted).withTopMargin(7))
         val accountActions = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -1589,8 +1602,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildInvoices(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Invoices"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Expenses that come to you.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Forward an email with a PDF invoice. BudgetGuard extracts the supplier, amount, dates and bank details, then waits for your approval before changing the plan.", 14f, Palette.muted).apply {
             setLineSpacing(dp(3).toFloat(), 1f)
@@ -1809,8 +1821,7 @@ class MainActivity : ComponentActivity() {
         if (currency == "ZAR") formatZar(cents) else "$currency ${BigDecimal.valueOf(cents, 2).toPlainString()}"
 
     private fun buildProfileAndSync(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Profile & sync"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Your private workspace.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Account identity, phone permissions, and background delivery in one place.", 14f, Palette.muted).withTopMargin(7))
 
@@ -2916,41 +2927,187 @@ class MainActivity : ComponentActivity() {
             return
         }
         val transactionAccount = data.accounts.firstOrNull { it.id == transaction.accountId }
-        val options = matchOptions.map { option ->
-            val item = option.plannedItem
-            val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
-            val accountText = when {
-                item.accountId == null -> "No plan account"
-                item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
-                else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
+        val dialog = Dialog(this)
+        val sheet = card(Palette.paper, radius = 30, padding = 0).apply {
+            clipToOutline = true
+            isFocusableInTouchMode = true
+            requestFocus()
+        }
+
+        sheet.addView(View(this).apply {
+            background = rounded(Palette.line, 2)
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(10)
             }
-            if (option.isAvailable) {
-                val progress = if (item.actualCents > 0L) " · ${formatZar(item.actualCents)} matched" else ""
-                "${item.name} · ${formatZar(option.remainingCents)} remaining$progress\n$accountText"
-            } else {
-                val matchedCount = option.matchedTransactions.size
-                val matchStatus = if (matchedCount == 0) {
-                    "Already fully matched"
-                } else {
-                    "Already matched · $matchedCount ${if (matchedCount == 1) "transaction" else "transactions"}"
+        })
+
+        val header = vertical().apply {
+            setPadding(dp(20), dp(16), dp(20), dp(14))
+            addView(label("MATCH TRANSACTION", 10f, Palette.moss, bold = true).apply {
+                letterSpacing = 0.1f
+            })
+            addView(label("Choose a plan item", 24f, Palette.ink, bold = true).withTopMargin(7))
+            addView(label(
+                "${transaction.merchant} · ${formatZar(transaction.unallocatedMatchCents())} available",
+                14f,
+                Palette.inkSoft,
+                bold = true,
+            ).withTopMargin(7))
+            addView(label(
+                "${data.month} · ${transactionAccount?.name ?: "Account"}",
+                12f,
+                Palette.muted,
+            ).withTopMargin(4))
+        }
+        sheet.addView(header)
+        sheet.addView(divider())
+
+        val controls = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
+        val search = input("Search plan items").apply {
+            contentDescription = "Search planned items"
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        controls.addView(search)
+        val resultsLabel = label("", 11f, Palette.muted, bold = true).apply {
+            letterSpacing = 0.04f
+        }
+        controls.addView(resultsLabel.withTopMargin(10))
+        sheet.addView(controls)
+
+        val list = vertical().apply { setPadding(dp(16), 0, dp(16), dp(14)) }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            addView(list)
+        }
+        sheet.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        fun renderOptions(query: String = "") {
+            list.removeAllViews()
+            val normalizedQuery = query.trim().lowercase(Locale.getDefault())
+            val visibleOptions = matchOptions.filter { option ->
+                val item = option.plannedItem
+                val planAccountName = data.accounts.firstOrNull { it.id == item.accountId }?.name.orEmpty()
+                normalizedQuery.isBlank() ||
+                    item.name.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
+                    planAccountName.lowercase(Locale.getDefault()).contains(normalizedQuery)
+            }
+            val availableCount = visibleOptions.count { it.isAvailable }
+            resultsLabel.text = buildString {
+                append("$availableCount AVAILABLE")
+                val matchedCount = visibleOptions.size - availableCount
+                if (matchedCount > 0) append("  ·  $matchedCount ALREADY MATCHED")
+            }
+
+            if (visibleOptions.isEmpty()) {
+                list.addView(emptyCard("No plan items match “${query.trim()}”. Try another name or account.").withTopMargin(8))
+                return
+            }
+
+            visibleOptions.forEachIndexed { index, option ->
+                val item = option.plannedItem
+                val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
+                val accountText = when {
+                    item.accountId == null -> "No plan account"
+                    item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
+                    else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
                 }
-                "${item.name} · $matchStatus\nTap to see the existing match"
+                val row = card(
+                    if (option.isAvailable) Palette.canvas else Palette.paper,
+                    radius = 20,
+                    padding = 16,
+                ).apply {
+                    background = rounded(
+                        if (option.isAvailable) Palette.canvas else Palette.paper,
+                        20,
+                        if (option.isAvailable) Palette.sage else Palette.line,
+                    )
+                    minimumHeight = dp(82)
+                    isClickable = true
+                    isFocusable = true
+                }
+                val top = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+                val copy = vertical().apply {
+                    addView(label(item.name, 16f, Palette.ink, bold = true).apply { maxLines = 2 })
+                    addView(label(
+                        if (option.isAvailable) {
+                            "${formatZar(option.remainingCents)} remaining"
+                        } else {
+                            "Already matched · View details"
+                        },
+                        13f,
+                        if (option.isAvailable) Palette.moss else Palette.muted,
+                        bold = true,
+                    ).withTopMargin(5))
+                }
+                top.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                top.addView(label("›", 24f, if (option.isAvailable) Palette.moss else Palette.muted, bold = true).apply {
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(dp(32), dp(44)))
+                row.addView(top)
+                row.addView(label(
+                    accountText,
+                    11f,
+                    if (item.accountId != null && item.accountId != transaction.accountId) Palette.coral else Palette.muted,
+                ).withTopMargin(9))
+                if (option.isAvailable && item.actualCents > 0L) {
+                    row.addView(label("${formatZar(item.actualCents)} matched so far", 11f, Palette.moss, bold = true).withTopMargin(4))
+                }
+                row.contentDescription = if (option.isAvailable) {
+                    "${item.name}, ${formatZar(option.remainingCents)} remaining, $accountText. Tap to match."
+                } else {
+                    "${item.name}, already matched. Tap to view details."
+                }
+                row.setOnClickListener {
+                    dialog.dismiss()
+                    if (option.isAvailable) {
+                        showManualMatchAmountDialog(transaction, item)
+                    } else {
+                        showExistingPlanMatchDetails(item, option.matchedTransactions)
+                    }
+                }
+                list.addView(row.withTopMargin(if (index == 0) 4 else 10))
             }
         }
-        AlertDialog.Builder(this)
-            // Android's standard AlertDialog message view replaces its list view on
-            // some devices. Keep this as a title + list so the plan rows are visible.
-            .setTitle("Choose a plan item · ${data.month}")
-            .setItems(options.toTypedArray()) { _, index ->
-                val option = matchOptions[index]
-                if (option.isAvailable) {
-                    showManualMatchAmountDialog(transaction, option.plannedItem)
-                } else {
-                    showExistingPlanMatchDetails(option.plannedItem, option.matchedTransactions)
-                }
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                renderOptions(value?.toString().orEmpty())
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            override fun afterTextChanged(value: Editable?) = Unit
+        })
+        renderOptions()
+
+        val footer = vertical().apply {
+            setBackgroundColor(Palette.paper)
+            setPadding(dp(16), dp(10), dp(16), dp(18))
+            addView(divider())
+            addView(action("Cancel", primary = false).apply {
+                contentDescription = "Close plan item picker"
+                setOnClickListener { dialog.dismiss() }
+            }.withTopMargin(10))
+        }
+        sheet.addView(footer)
+
+        dialog.setContentView(sheet)
+        dialog.setOnShowListener {
+            dialog.window?.apply {
+                setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.91f).toInt())
+                setGravity(Gravity.BOTTOM)
+                setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN,
+                )
+                attributes = attributes.apply { dimAmount = 0.58f }
+                addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                setWindowAnimations(R.style.BudgetGuardSheetAnimation)
+                decorView.setPadding(dp(10), 0, dp(10), dp(10))
+            }
+        }
+        dialog.show()
     }
 
     private fun showExistingPlanMatchDetails(
