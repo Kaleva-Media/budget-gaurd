@@ -476,8 +476,12 @@ class MainActivity : ComponentActivity() {
         val matchedIncomeCents = data.plannedItems
             .filter { it.direction == "income" }
             .sumOf { it.actualCents.coerceAtLeast(0L) }
-        val settledPlannedExpenseCents =
-            (cashflow.plannedExpenseCents - safeToSpend.rCents).coerceIn(0L, cashflow.plannedExpenseCents)
+        val matchedPlannedExpenseCents = data.plannedItems
+            .filter { it.direction == "expense" }
+            .sumOf { minOf(it.matchedCents, it.plannedCents) }
+        val overpaidPlannedExpenseCents = data.plannedItems
+            .filter { it.direction == "expense" }
+            .sumOf(PlannedItem::overpaidCents)
         val reportableOutflows = data.transactions.filter { transaction ->
             transaction.amountCents < 0L &&
                 transaction.status in setOf("posted", "pending") &&
@@ -528,7 +532,7 @@ class MainActivity : ComponentActivity() {
         val heroGuidance = when (heroSummary.mode) {
             HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; current bank balances are not used."
             HomeHeroMode.PAST_PLAN_RESULT -> "This compares the saved plan, not the historical closing bank balance."
-            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Posted transactions are already reflected in bank balances and are not deducted twice."
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Only transaction amounts matched to the plan reduce what is still planned. Posted activity is already reflected in bank balances and is not deducted twice."
         }
 
         content.addView(label("Your cycle at a glance.", 31f, Palette.ink, bold = true).withTopMargin(22))
@@ -596,12 +600,17 @@ class MainActivity : ComponentActivity() {
         })
         expenseReport.addView(label(formatZar(cashflow.plannedExpenseCents), 30f, Palette.ink, bold = true).withTopMargin(8))
         expenseReport.addView(label(
-            "${formatZar(settledPlannedExpenseCents)} matched or confirmed  ·  ${formatZar(safeToSpend.rCents)} still planned",
+            buildString {
+                append("${formatZar(matchedPlannedExpenseCents)} matched  ·  ${formatZar(safeToSpend.rCents)} still planned")
+                if (overpaidPlannedExpenseCents > 0L) append("  ·  ${formatZar(overpaidPlannedExpenseCents)} over plan")
+            },
             13f,
-            Palette.inkSoft,
+            if (overpaidPlannedExpenseCents > 0L) Palette.coral else Palette.inkSoft,
         ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(5))
-        expenseReport.contentDescription =
-            "Total planned expenditure ${formatZar(cashflow.plannedExpenseCents)}. ${formatZar(settledPlannedExpenseCents)} matched or confirmed and ${formatZar(safeToSpend.rCents)} still planned."
+        expenseReport.contentDescription = buildString {
+            append("Total planned expenditure ${formatZar(cashflow.plannedExpenseCents)}. ${formatZar(matchedPlannedExpenseCents)} matched and ${formatZar(safeToSpend.rCents)} still planned.")
+            if (overpaidPlannedExpenseCents > 0L) append(" ${formatZar(overpaidPlannedExpenseCents)} over plan.")
+        }
         content.addView(expenseReport.withTopMargin(12))
 
         val accountBalances = card(Palette.canvas, radius = 24, padding = 18)
@@ -613,7 +622,7 @@ class MainActivity : ComponentActivity() {
         accountHeading.addView(label("Manage  →", 12f, Palette.moss, bold = true))
         accountBalances.addView(accountHeading)
         accountBalances.addView(label(
-            "Balances come from the latest supported account-specific bank message.",
+            "Balances come from the latest supported account-specific bank message and include all bank activity. Only matched payments reduce the amount still planned above.",
             12f,
             Palette.muted,
         ).withTopMargin(6))
@@ -2491,23 +2500,38 @@ class MainActivity : ComponentActivity() {
             addView(label(item.name, 14f, Palette.ink, bold = true))
             addView(label("$kindName · $categoryName", 11f, Palette.coral, bold = true).withTopMargin(3))
             addView(label(schedule, 11f, Palette.muted).withTopMargin(2))
+            val matchProgress = when {
+                item.overpaidCents > 0L ->
+                    "${formatZar(item.matchedCents)} matched · ${formatZar(item.overpaidCents)} over plan"
+                item.remainingMatchCents > 0L && item.matchedCents > 0L ->
+                    "${formatZar(item.matchedCents)} matched · ${formatZar(item.remainingMatchCents)} under plan"
+                item.remainingMatchCents == 0L ->
+                    "${formatZar(item.matchedCents)} matched · plan met"
+                else -> "No matched payments · ${formatZar(item.plannedCents)} under plan"
+            }
+            addView(label(
+                matchProgress,
+                11f,
+                if (item.overpaidCents > 0L) Palette.coral else Palette.moss,
+                bold = item.matchedCents > 0L,
+            ).withTopMargin(4))
         }
         addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val amount = vertical().apply {
             gravity = Gravity.END
             addView(label(formatZar(item.plannedCents), 15f, Palette.ink, bold = true).apply { gravity = Gravity.END })
             val paymentControl = when {
-                item.manuallyPaid -> action("Undo paid", primary = false, compact = true).apply {
-                    contentDescription = "Mark ${item.name} as unpaid"
+                item.manuallyPaid -> action("Undo manual paid", primary = false, compact = true).apply {
+                    contentDescription = "Undo manually paid status for ${item.name}; transaction matches are unchanged"
                     setOnClickListener { setPlannedExpensePaid(item, false, this) }
                 }
-                item.isPaid -> label("✓  Paid", 11f, Palette.moss, bold = true).apply {
+                item.isPaid -> label("✓  Matched", 11f, Palette.moss, bold = true).apply {
                     gravity = Gravity.CENTER
                     setPadding(dp(9), dp(6), dp(9), dp(6))
                     background = rounded(Palette.sage, 13)
                 }
-                else -> action("Mark paid", primary = false, compact = true).apply {
-                    contentDescription = "Mark ${item.name} as paid"
+                else -> action("Mark paid manually", primary = false, compact = true).apply {
+                    contentDescription = "Mark ${item.name} as paid manually; this will not change the bank position"
                     setOnClickListener { setPlannedExpensePaid(item, true, this) }
                 }
             }
@@ -2518,7 +2542,11 @@ class MainActivity : ComponentActivity() {
         setPadding(0, dp(4), 0, dp(4))
         isClickable = true
         isFocusable = true
-        contentDescription = "Edit ${item.name} expense"
+        contentDescription = buildString {
+            append("Edit ${item.name} expense. ${formatZar(item.matchedCents)} matched against ${formatZar(item.plannedCents)} planned.")
+            if (item.overpaidCents > 0L) append(" ${formatZar(item.overpaidCents)} over plan.")
+            else if (item.remainingMatchCents > 0L) append(" ${formatZar(item.remainingMatchCents)} under plan.")
+        }
         setOnClickListener { showExpenseEditor(data, item) }
     }
 
@@ -3031,7 +3059,7 @@ class MainActivity : ComponentActivity() {
                 val amount = transaction.plannedItemMatchAmounts[plannedId]
                 add("Remove ${item?.name ?: "planned item"}${amount?.let { " · ${formatZar(it)}" }.orEmpty()}")
             }
-            if (canInspectAnother) add("+ Match or inspect another plan item")
+            if (canInspectAnother) add("+ Match another plan item")
         }
         AlertDialog.Builder(this)
             .setTitle("Manage transaction matches")
@@ -3124,11 +3152,10 @@ class MainActivity : ComponentActivity() {
                     item.name.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
                     planAccountName.lowercase(Locale.getDefault()).contains(normalizedQuery)
             }
-            val availableCount = visibleOptions.count { it.isAvailable }
             resultsLabel.text = buildString {
-                append("$availableCount AVAILABLE")
-                val matchedCount = visibleOptions.size - availableCount
-                if (matchedCount > 0) append("  ·  $matchedCount ALREADY MATCHED")
+                append("${visibleOptions.size} PLAN ${if (visibleOptions.size == 1) "ITEM" else "ITEMS"}")
+                val inProgressCount = visibleOptions.count { it.plannedItem.matchedCents > 0L }
+                if (inProgressCount > 0) append("  ·  $inProgressCount WITH MATCHES")
             }
 
             if (visibleOptions.isEmpty()) {
@@ -3145,14 +3172,14 @@ class MainActivity : ComponentActivity() {
                     else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
                 }
                 val row = card(
-                    if (option.isAvailable) Palette.canvas else Palette.paper,
+                    Palette.canvas,
                     radius = 20,
                     padding = 16,
                 ).apply {
                     background = rounded(
-                        if (option.isAvailable) Palette.canvas else Palette.paper,
+                        Palette.canvas,
                         20,
-                        if (option.isAvailable) Palette.sage else Palette.line,
+                        if (option.overpaidCents > 0L) Palette.peach else Palette.sage,
                     )
                     minimumHeight = dp(82)
                     isClickable = true
@@ -3162,18 +3189,18 @@ class MainActivity : ComponentActivity() {
                 val copy = vertical().apply {
                     addView(label(item.name, 16f, Palette.ink, bold = true).apply { maxLines = 2 })
                     addView(label(
-                        if (option.isAvailable) {
-                            "${formatZar(option.remainingCents)} remaining"
-                        } else {
-                            "Already matched · View details"
+                        when {
+                            option.overpaidCents > 0L -> "${formatZar(option.overpaidCents)} over plan · You can match another payment"
+                            option.remainingCents > 0L -> "${formatZar(option.remainingCents)} remaining"
+                            else -> "Plan met · You can match another payment"
                         },
                         13f,
-                        if (option.isAvailable) Palette.moss else Palette.muted,
+                        if (option.overpaidCents > 0L) Palette.coral else Palette.moss,
                         bold = true,
                     ).withTopMargin(5))
                 }
                 top.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                top.addView(label("›", 24f, if (option.isAvailable) Palette.moss else Palette.muted, bold = true).apply {
+                top.addView(label("›", 24f, Palette.moss, bold = true).apply {
                     gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(dp(32), dp(44)))
                 row.addView(top)
@@ -3182,21 +3209,31 @@ class MainActivity : ComponentActivity() {
                     11f,
                     if (item.accountId != null && item.accountId != transaction.accountId) Palette.coral else Palette.muted,
                 ).withTopMargin(9))
-                if (option.isAvailable && item.actualCents > 0L) {
-                    row.addView(label("${formatZar(item.actualCents)} matched so far", 11f, Palette.moss, bold = true).withTopMargin(4))
+                if (item.matchedCents > 0L) {
+                    val paymentCount = option.matchedTransactions.size
+                    row.addView(label(
+                        if (paymentCount > 0) {
+                            "${formatZar(item.matchedCents)} matched across $paymentCount ${if (paymentCount == 1) "payment" else "payments"}"
+                        } else {
+                            "${formatZar(item.matchedCents)} matched · payment details outside loaded activity"
+                        },
+                        11f,
+                        Palette.moss,
+                        bold = true,
+                    ).withTopMargin(4))
                 }
-                row.contentDescription = if (option.isAvailable) {
-                    "${item.name}, ${formatZar(option.remainingCents)} remaining, $accountText. Tap to match."
-                } else {
-                    "${item.name}, already matched. Tap to view details."
+                row.contentDescription = buildString {
+                    append("${item.name}, ${formatZar(item.matchedCents)} matched against ${formatZar(item.plannedCents)} planned, $accountText. ")
+                    when {
+                        option.overpaidCents > 0L -> append("${formatZar(option.overpaidCents)} over plan. ")
+                        option.remainingCents > 0L -> append("${formatZar(option.remainingCents)} remaining. ")
+                        else -> append("Plan met. ")
+                    }
+                    append("Tap to match this payment.")
                 }
                 row.setOnClickListener {
                     dialog.dismiss()
-                    if (option.isAvailable) {
-                        showManualMatchAmountDialog(transaction, item)
-                    } else {
-                        showExistingPlanMatchDetails(item, option.matchedTransactions)
-                    }
+                    showManualMatchAmountDialog(transaction, item)
                 }
                 list.addView(row.withTopMargin(if (index == 0) 4 else 10))
             }
@@ -3241,54 +3278,39 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
-    private fun showExistingPlanMatchDetails(
-        item: PlannedItem,
-        matchingTransactions: List<Transaction>,
-    ) {
-        val matchIsOutsideCycle = matchingTransactions.isEmpty()
-        val matchDetails = if (matchIsOutsideCycle) {
-            "Its linked transaction is not in the currently loaded cycle."
-        } else {
-            matchingTransactions.joinToString("\n") { transaction ->
-                val amount = transaction.plannedItemMatchAmounts[item.id]
-                buildString {
-                    append("• ${transaction.merchant} · ${formatTransactionDate(transaction.occurredOn)}")
-                    if (amount != null) append(" · ${formatZar(amount)}")
-                }
-            }
-        }
-        val guidance = if (matchIsOutsideCycle) {
-            "Switch to the cycle containing the linked transaction, then use Manage matches there before replacing it."
-        } else {
-            "Use Manage matches on the linked transaction and remove that match first."
-        }
-        AlertDialog.Builder(this)
-            .setTitle("${item.name} is already matched")
-            .setMessage(
-                "BudgetGuard currently counts ${formatZar(item.actualCents)} against ${formatZar(item.plannedCents)} planned.\n\n" +
-                    "$matchDetails\n\n$guidance",
-            )
-            .setPositiveButton("OK", null)
-            .show()
-    }
-
     private fun showManualMatchAmountDialog(
         transaction: Transaction,
         item: PlannedItem,
     ) {
         val unallocated = transaction.unallocatedMatchCents()
-        val planRemaining = (item.plannedCents - item.actualCents).coerceAtLeast(0L)
-        val maximum = minOf(unallocated, planRemaining)
-        if (maximum <= 0L) {
-            Toast.makeText(this, "There is no amount left to match.", Toast.LENGTH_SHORT).show()
+        if (unallocated <= 0L) {
+            Toast.makeText(this, "This transaction has no amount left to match.", Toast.LENGTH_SHORT).show()
             return
+        }
+        val suggestedAmount = if (item.remainingMatchCents > 0L) {
+            minOf(unallocated, item.remainingMatchCents)
+        } else {
+            unallocated
         }
         val container = vertical().apply { setPadding(dp(22), dp(4), dp(22), dp(12)) }
         container.addView(label(
-            "${transaction.merchant} has ${formatZar(unallocated)} unallocated. ${item.name} has ${formatZar(planRemaining)} remaining.",
+            buildString {
+                append("${transaction.merchant} has ${formatZar(unallocated)} unallocated. ")
+                when {
+                    item.overpaidCents > 0L -> append("${item.name} is already ${formatZar(item.overpaidCents)} over plan.")
+                    item.remainingMatchCents > 0L -> append("${item.name} has ${formatZar(item.remainingMatchCents)} remaining after ${formatZar(item.matchedCents)} matched.")
+                    else -> append("${item.name} is fully matched at ${formatZar(item.matchedCents)}.")
+                }
+            },
             13f,
             Palette.muted,
         ))
+        container.addView(label(
+            "You can allocate up to ${formatZar(unallocated)} from this transaction. Any amount beyond the plan will be shown as over plan.",
+            12f,
+            Palette.moss,
+            bold = true,
+        ).withTopMargin(9))
         if (item.accountId != null && item.accountId != transaction.accountId) {
             container.addView(label(
                 "The planned account differs from the transaction account. Confirm only if this is intentional.",
@@ -3298,7 +3320,7 @@ class MainActivity : ComponentActivity() {
             ).withTopMargin(9))
         }
         val amount = input("Amount to match in rand", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply {
-            setText(BigDecimal.valueOf(maximum, 2).toPlainString())
+            setText(BigDecimal.valueOf(suggestedAmount, 2).toPlainString())
             selectAll()
         }
         container.addView(amount.withTopMargin(12))
@@ -3311,34 +3333,70 @@ class MainActivity : ComponentActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val cents = parseMoneyCents(amount.text.toString())
-                if (cents == null || cents > maximum) {
+                if (cents == null || cents > unallocated) {
                     Toast.makeText(
                         this,
-                        "Enter an amount up to ${formatZar(maximum)}.",
+                        "Enter an amount up to ${formatZar(unallocated)}.",
                         Toast.LENGTH_SHORT,
                     ).show()
                     return@setOnClickListener
                 }
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-                lifecycleScope.launch {
-                    runCatching {
-                        applicationState.collectorClient?.confirmPlannedItemMatch(
-                            plannedItemId = item.id,
-                            transactionId = transaction.id,
-                            amountCents = cents,
-                        ) ?: error("BudgetGuard is not configured.")
-                    }.onSuccess {
-                        dialog.dismiss()
-                        Toast.makeText(this@MainActivity, "Matched to ${item.name}.", Toast.LENGTH_SHORT).show()
-                        loadDashboard(keepContentVisible = true)
-                    }.onFailure {
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
-                        Toast.makeText(this@MainActivity, "Couldn't save that match.", Toast.LENGTH_LONG).show()
-                    }
+                val projectedMatched = item.matchedCents + cents
+                val projectedOverpaid = (projectedMatched - item.plannedCents).coerceAtLeast(0L)
+                if (projectedOverpaid > 0L) {
+                    AlertDialog.Builder(this)
+                        .setTitle("This is over the plan")
+                        .setMessage(
+                            "After this match, ${item.name} will have ${formatZar(projectedMatched)} matched against ${formatZar(item.plannedCents)} planned — ${formatZar(projectedOverpaid)} over plan.",
+                        )
+                        .setPositiveButton("Match anyway") { _, _ ->
+                            saveManualMatch(dialog, transaction, item, cents)
+                        }
+                        .setNegativeButton("Change amount", null)
+                        .show()
+                } else {
+                    saveManualMatch(dialog, transaction, item, cents)
                 }
             }
         }
         dialog.show()
+    }
+
+    private fun saveManualMatch(
+        dialog: AlertDialog,
+        transaction: Transaction,
+        item: PlannedItem,
+        amountCents: Long,
+    ) {
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+        val projectedMatched = item.matchedCents + amountCents
+        val projectedRemaining = (item.plannedCents - projectedMatched).coerceAtLeast(0L)
+        val projectedOverpaid = (projectedMatched - item.plannedCents).coerceAtLeast(0L)
+        lifecycleScope.launch {
+            runCatching {
+                applicationState.collectorClient?.confirmPlannedItemMatch(
+                    plannedItemId = item.id,
+                    transactionId = transaction.id,
+                    amountCents = amountCents,
+                ) ?: error("BudgetGuard is not configured.")
+            }.onSuccess {
+                dialog.dismiss()
+                val result = when {
+                    projectedOverpaid > 0L -> "${formatZar(projectedOverpaid)} over plan"
+                    projectedRemaining > 0L -> "${formatZar(projectedRemaining)} still under plan"
+                    else -> "plan met"
+                }
+                Toast.makeText(
+                    this@MainActivity,
+                    "Matched ${formatZar(amountCents)} to ${item.name} · $result.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                loadDashboard(keepContentVisible = true)
+            }.onFailure {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                Toast.makeText(this@MainActivity, "Couldn't save that match.", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun showRemoveTransactionMatchConfirmation(

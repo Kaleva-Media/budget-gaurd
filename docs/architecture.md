@@ -81,9 +81,9 @@ Planned items can point to the account responsible for receiving or paying them.
 
 Android derives confirmation-only match suggestions from the active cycle data. A transaction must be unmatched, posted or pending, non-transfer/non-reversal, and have the same sign direction and exact remaining amount as a plan item. An assigned plan account must match the transaction account. The app suggests a pair only when both sides have one unique candidate; ambiguous equal-amount entries remain unlinked. Confirmation inserts the existing owner-scoped match record and clears transaction review state. It does not move money, create a transaction, or infer a match without user approval.
 
-Manual reconciliation uses the same table and trust boundary. Android retains each match amount, calculates the transaction's still-unallocated amount, and offers same-direction items from the selected cycle in a searchable bottom sheet. Its transaction summary, search controls, and close action remain fixed while the plan-card list scrolls; each card distinguishes the remaining amount, account route, partial progress, and already-matched state without relying on colour alone. Items with remaining value accept an allocation capped by both the transaction remainder and plan remainder; this permits partial payments and splitting one transaction across several plan lines without over-allocation. Fully satisfied items remain visible but read-only in the picker, with the known linked transactions and allocation amounts shown so an empty candidate list cannot conceal an existing match. A different assigned account produces an explicit warning but is not blocked because the user is making the decision. Removing a match restores derived plan progress and returns an uncategorized transaction to review only when no other match remains.
+Manual reconciliation uses the same table and trust boundary. Android retains each match amount, calculates the transaction's still-unallocated amount, and offers same-direction items from the selected cycle in a searchable bottom sheet. Its transaction summary, search controls, and close action remain fixed while the plan-card list scrolls; each card distinguishes the remaining amount, account route, partial progress, and over-plan state without relying on colour alone. An allocation is capped by the transaction remainder, not the plan remainder. This permits partial payments, several transactions against one plan item, splitting one transaction across several plan lines, and an explicit over-plan result when actual matched payments exceed the plan. A fully satisfied or already-over plan remains selectable for another transaction, but the app warns and requires a second confirmation before a new allocation would increase the overage. A different assigned account produces an explicit warning but is not blocked because the user is making the decision. Removing a match restores derived plan progress and returns an uncategorized transaction to review only when no other match remains.
 
-`planned_item_payment_confirmations` records an owner's explicit “mark paid” action for an expense. It is a reversible bookkeeping confirmation, not a transaction, account-balance change, or payment instruction. Only owned expense items can be confirmed. A confirmed item is treated as settled in plan grouping and remaining-commitment calculations, while matched transaction progress remains authoritative evidence of actual movement. Calculations use the greater of the confirmed planned amount and transaction-derived progress, so the two signals cannot double-count an expense. If transaction matches already settle an item, removing a manual confirmation does not make it unpaid.
+`planned_item_payment_confirmations` records an owner's explicit “mark paid” action for an expense. It is a reversible bookkeeping confirmation, not a transaction, account-balance change, or payment instruction. Only owned expense items can be confirmed. A confirmed item is treated as settled in plan grouping, while matched transaction progress remains authoritative evidence of actual movement. Manual confirmation never reduces the current-cycle bank-position commitment; only stored match allocations do that. If transaction matches already settle an item, removing a manual confirmation does not make it unpaid.
 
 Projected surplus is:
 
@@ -92,16 +92,20 @@ Projected surplus is:
 Android presents the current-cycle cash position separately from projected
 surplus. The homepage shows total planned income and total planned expenditure,
 then makes the current cash formula explicit: included SMS-backed account
-balances minus remaining planned outflows minus pending bank outflows. Matching
-or manually confirming a plan item reduces the remaining planned outflow.
-Posted matched, categorised-only, and uncategorised transactions are already
-reflected in the latest account balances and are therefore not subtracted a
-second time. A separate homepage report lists every account's latest supported
-SMS balance and whether the account contributes to that formula. This is current
-per-account state, not balance history: the schema still keeps the latest
-normalized account balance rather than a time series of balance snapshots. For
-future and past selections, the same card switches to the plan formula above and
-states that it is not a current or historical bank balance.
+balances minus remaining planned outflows minus pending bank outflows. Only the
+stored `planned_item_matches.amount_cents` allocations reduce a planned outflow;
+a category or manual paid confirmation is not bank-payment evidence and does not
+change this calculation. Several allocations accumulate against one plan item.
+Under-plan amounts remain commitments, while over-plan amounts are reported but
+do not create negative remaining commitments. Posted matched, categorised-only,
+and uncategorised transactions are already reflected in the latest account
+balances and are therefore not subtracted a second time. A separate homepage
+report lists every account's latest supported SMS balance and whether the account
+contributes to that formula. This is current per-account state, not balance
+history: the schema still keeps the latest normalized account balance rather than
+a time series of balance snapshots. For future and past selections, the same card
+switches to the plan formula above and states that it is not a current or
+historical bank balance.
 
 Flexible category envelopes remain separate. They answer how much discretionary spending is still safe; the monthly plan answers whether known obligations and savings goals are funded.
 

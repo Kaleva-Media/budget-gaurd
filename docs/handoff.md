@@ -1,10 +1,31 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-05. Production application baseline: `2f21bc5` (`main`);
+Updated: 2026-10-05. Production application baseline: `8632bcd` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **2026-10-05 cumulative plan matching source change**: Android manual
+  matching now keeps fully matched and over-plan items selectable, so several
+  separate transactions can accumulate against one planned income or expense.
+  The amount entry is capped only by the transaction's unallocated value. It
+  defaults to the remaining plan amount when one exists, reports partial matches
+  as under plan, and requires a second confirmation before creating or increasing
+  an over-plan result. Plan rows and match cards show the matched total plus the
+  remaining or over-plan amount. The current-cycle bank-position calculation now
+  treats `planned_item_progress.actual_cents`—the sum of stored match
+  allocations—as the only evidence that a planned payment occurred. Categories,
+  a transaction link without its allocation, and the reversible “mark paid
+  manually” control do not reduce the outstanding plan in that calculation.
+  Pending matched payments remain deducted once through pending-bank activity.
+  Android advances to `0.6.9` (code 25). Verification passed all 35 TypeScript
+  domain tests, TypeScript checks, the production web build, parser tests, Android
+  app unit tests, Android lint, debug APK assembly, and `git diff --check`. The
+  configured debug APK SHA-256 is
+  `72687a17b2bddaee3cb58a595431273f87408b8fda7a2f44885e3546d1241c33`.
+  Installed-device behaviour remains unverified. This source change has not been
+  merged or deployed.
 
 - **2026-10-05 Android homepage reporting source change**: Home now leads with
   three explicit cycle reports in the requested order: total planned income,
@@ -24,8 +45,15 @@ This document records repository state and historical observations, not a fresh 
   `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
   configured debug APK SHA-256 is
   `9c138276406294bbd49ae58ea6f3e44ab8cd1a0093bb1afc5f2d697063d09b00`.
-  The source change has not been merged or deployed; installed-device behaviour
-  remains unverified.
+  PR [#34](https://github.com/Kaleva-Media/budget-gaurd/pull/34) was
+  squash-merged as `8632bcd`. Main CI run
+  [37266612166](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37266612166)
+  passed every suite and the required `all-tests` gate. Production deployment run
+  [37266780839](https://github.com/Kaleva-Media/budget-gaurd/actions/runs/37266780839)
+  restore-tested its backup, applied zero migrations, activated the exact tested
+  revision, and passed controller smoke checks. The public version endpoint
+  reports `8632bcd2513113453c63f483a6b819e0bb123576`. Installed-device
+  behaviour remains unverified.
 
 - **2026-10-05 Android match-picker and fixed-header source change**: The
   manual transaction-match picker is now a 91%-height bottom sheet instead of a
@@ -41,8 +69,8 @@ This document records repository state and historical observations, not a fresh 
   `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
   configured debug APK SHA-256 is
   `2fdce5f9c964c84e699d91f9ad36f5a4189b241ebf2066d6fad30af0e218c30e`.
-  This source change has not been merged or deployed; installed-device behaviour
-  remains unverified.
+  This source change was included in the PR #34 deployment described above;
+  installed-device behaviour remains unverified.
 
 - **2026-10-05 Android match-status picker source change**: The manual match
   picker no longer hides fully satisfied plan items. It lists them after available
@@ -59,7 +87,7 @@ This document records repository state and historical observations, not a fresh 
   `:app:lintDebug`, and `:app:assembleDebug` (76 unit tests: 20 parser and 56
   app). The configured debug APK SHA-256 is
   `676b87518303c4308a79320342bab8c676d9cbb0a6e86cb32c75452597a0450b`.
-  This source change has not been merged or deployed.
+  This source change was included in the PR #34 deployment described above.
 
 - **2026-10-05 Android manual transaction matching deployment**: Activity now
   exposes “Match to plan” on eligible posted and pending transactions instead of

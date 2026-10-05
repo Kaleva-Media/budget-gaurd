@@ -120,7 +120,7 @@ class SafeToSpendTest {
     }
 
     @Test
-    fun `manual paid confirmation removes expense from remaining commitments`() {
+    fun `manual paid confirmation does not change match-backed remaining commitments`() {
         val dashboard = dashboard(
             accounts = listOf(stsAccount),
             plannedItems = listOf(plannedExpense.copy(manuallyPaid = true)),
@@ -129,8 +129,8 @@ class SafeToSpendTest {
 
         val result = dashboard.summariseSafeToSpend()
 
-        assertEquals(0L, result.rCents)
-        assertEquals(500_000L, result.safeToSpendCents)
+        assertEquals(150_000L, result.rCents)
+        assertEquals(350_000L, result.safeToSpendCents)
     }
 
     @Test
@@ -269,7 +269,7 @@ class SafeToSpendTest {
 
         val dashboard = dashboard(
             accounts = listOf(stsAccount),
-            plannedItems = listOf(plannedExpense),
+            plannedItems = listOf(plannedExpense.copy(actualCents = 150_000L)),
             transactions = listOf(postedTx),
         )
 
@@ -310,7 +310,7 @@ class SafeToSpendTest {
 
         val afterMatchedPending = dashboard(
             accounts = listOf(stsAccount),
-            plannedItems = listOf(plannedExpense),
+            plannedItems = listOf(plannedExpense.copy(actualCents = 150_000L)),
             transactions = listOf(matchedPending),
         ).summariseSafeToSpend()
 
@@ -343,7 +343,7 @@ class SafeToSpendTest {
 
         val dashboard = dashboard(
             accounts = listOf(stsAccount),
-            plannedItems = listOf(plannedExpense),
+            plannedItems = listOf(plannedExpense.copy(actualCents = 100_000L)),
             transactions = listOf(partialTx),
         )
 
@@ -461,7 +461,7 @@ class SafeToSpendTest {
             kind = "fixed_expense",
             name = "Insurance",
             plannedCents = 80_000,
-            actualCents = 0,
+            actualCents = 80_000,
             accountId = "cheque",
             categoryId = "insurance",
             dueDay = 15,
@@ -587,7 +587,7 @@ class SafeToSpendTest {
 
         val dashboard = dashboard(
             accounts = listOf(stsAccount),
-            plannedItems = listOf(plannedExpense),
+            plannedItems = listOf(plannedExpense.copy(actualCents = 200_000L)),
             transactions = listOf(overMatchedTx),
         )
 
