@@ -597,6 +597,146 @@ class SafeToSpendTest {
         assertEquals(500_000L, result.safeToSpendCents)
     }
 
+    @Test
+    fun openPendingFromEarlierCycleIsIncludedInSTS() {
+        val rent = PlannedItem(
+            id = "rent",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Rent",
+            plannedCents = 150_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "housing",
+            dueDay = 1,
+            sortOrder = 1,
+        )
+
+        val oldPending = Transaction(
+            id = "old_pending",
+            accountId = "cheque",
+            categoryId = "housing",
+            occurredOn = "2026-08-15",
+            occurredAt = "2026-08-15T10:00:00+02:00",
+            amountCents = -50_000,
+            status = "pending",
+            kind = "card_purchase",
+            merchant = "Old pending",
+            description = "Pending from previous cycle",
+            needsReview = false,
+            plannedItemIds = emptyList(),
+            plannedItemMatchAmounts = emptyMap(),
+        )
+
+        val result = MobileDashboard(
+            month = "September – October 2026",
+            profileDisplayName = "Edward",
+            entity = Entity("personal", "Personal", "personal", true, 1),
+            entities = listOf(Entity("personal", "Personal", "personal", true, 1)),
+            period = BudgetPeriod("period", "2026-09-01", "active", 100_000),
+            periods = listOf(BudgetPeriod("period", "2026-09-01", "active", 100_000)),
+            accounts = listOf(stsAccount),
+            categories = emptyList(),
+            budgets = emptyList(),
+            plannedItems = listOf(rent),
+            transactions = listOf(oldPending),
+            invoiceInbox = null,
+            invoices = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(150_000L, result.rCents)
+        assertEquals(50_000L, result.pCents)
+        assertEquals(200_000L, result.cCents)
+        assertEquals(300_000L, result.safeToSpendCents)
+    }
+
+    @Test
+    fun matchedPendingMovesRtoPWithCUnchanged() {
+        val rent = PlannedItem(
+            id = "rent",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Rent",
+            plannedCents = 150_000,
+            actualCents = 0,
+            accountId = "cheque",
+            categoryId = "housing",
+            dueDay = 1,
+            sortOrder = 1,
+        )
+
+        val beforePending = MobileDashboard(
+            month = "September – October 2026",
+            profileDisplayName = "Edward",
+            entity = Entity("personal", "Personal", "personal", true, 1),
+            entities = listOf(Entity("personal", "Personal", "personal", true, 1)),
+            period = BudgetPeriod("period", "2026-09-01", "active", 100_000),
+            periods = listOf(BudgetPeriod("period", "2026-09-01", "active", 100_000)),
+            accounts = listOf(stsAccount),
+            categories = emptyList(),
+            budgets = emptyList(),
+            plannedItems = listOf(rent),
+            transactions = emptyList(),
+            invoiceInbox = null,
+            invoices = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(150_000L, beforePending.rCents)
+        assertEquals(0L, beforePending.pCents)
+        assertEquals(150_000L, beforePending.cCents)
+
+        val matchedRent = PlannedItem(
+            id = "rent",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Rent",
+            plannedCents = 150_000,
+            actualCents = 150_000,
+            accountId = "cheque",
+            categoryId = "housing",
+            dueDay = 1,
+            sortOrder = 1,
+        )
+
+        val matchedPending = Transaction(
+            id = "rent_pending",
+            accountId = "cheque",
+            categoryId = "housing",
+            occurredOn = "2026-09-17",
+            occurredAt = "2026-09-17T10:00:00+02:00",
+            amountCents = -150_000,
+            status = "pending",
+            kind = "scheduled_payment",
+            merchant = "Landlord",
+            description = "Rent pending",
+            needsReview = false,
+            plannedItemIds = listOf("rent"),
+            plannedItemMatchAmounts = mapOf("rent" to 150_000),
+        )
+
+        val afterPending = MobileDashboard(
+            month = "September – October 2026",
+            profileDisplayName = "Edward",
+            entity = Entity("personal", "Personal", "personal", true, 1),
+            entities = listOf(Entity("personal", "Personal", "personal", true, 1)),
+            period = BudgetPeriod("period", "2026-09-01", "active", 100_000),
+            periods = listOf(BudgetPeriod("period", "2026-09-01", "active", 100_000)),
+            accounts = listOf(stsAccount),
+            categories = emptyList(),
+            budgets = emptyList(),
+            plannedItems = listOf(matchedRent),
+            transactions = listOf(matchedPending),
+            invoiceInbox = null,
+            invoices = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(0L, afterPending.rCents)
+        assertEquals(150_000L, afterPending.pCents)
+        assertEquals(150_000L, afterPending.cCents)
+        assertEquals(afterPending.cCents, beforePending.cCents)
+        assertEquals(afterPending.safeToSpendCents, beforePending.safeToSpendCents)
+    }
+
     private fun dashboard(
         accounts: List<Account> = emptyList(),
         plannedItems: List<PlannedItem> = emptyList(),

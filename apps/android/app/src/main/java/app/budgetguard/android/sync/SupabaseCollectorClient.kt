@@ -197,6 +197,15 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
+        val allPending = client.from("transactions")
+            .select {
+                filter {
+                    eq("entity_id", entityRow.id)
+                    eq("status", "pending")
+                }
+            }
+            .decodeList<TransactionRow>()
+        val deduplicatedTransactions = (allPending + transactions).distinctBy { it.id }
         val matchRows = client.from("planned_item_matches")
             .select {
                 filter {
