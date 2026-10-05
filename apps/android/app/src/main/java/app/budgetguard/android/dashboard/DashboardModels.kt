@@ -174,8 +174,14 @@ data class PlannedItem(
     val recurrence: String = "monthly",
     val manuallyPaid: Boolean = false,
 ) {
+    val matchedCents: Long
+        get() = actualCents.coerceAtLeast(0L)
+    val remainingMatchCents: Long
+        get() = (plannedCents - matchedCents).coerceAtLeast(0L)
+    val overpaidCents: Long
+        get() = (matchedCents - plannedCents).coerceAtLeast(0L)
     val isPaid: Boolean
-        get() = direction == "expense" && (manuallyPaid || actualCents >= plannedCents)
+        get() = direction == "expense" && (manuallyPaid || remainingMatchCents == 0L)
 }
 
 enum class ExpenseOrder { NAME, AMOUNT }
@@ -241,17 +247,17 @@ data class Transaction(
 
 fun MobileDashboard.manualMatchCandidates(transaction: Transaction): List<PlannedItem> {
     return manualMatchOptions(transaction)
-        .filter(ManualMatchOption::isAvailable)
         .map(ManualMatchOption::plannedItem)
 }
 
 data class ManualMatchOption(
     val plannedItem: PlannedItem,
     val remainingCents: Long,
+    val overpaidCents: Long,
     val matchedTransactions: List<Transaction>,
 ) {
-    val isAvailable: Boolean
-        get() = remainingCents > 0L
+    val isPlanMet: Boolean
+        get() = remainingCents == 0L
 }
 
 fun MobileDashboard.manualMatchOptions(transaction: Transaction): List<ManualMatchOption> {
@@ -265,14 +271,15 @@ fun MobileDashboard.manualMatchOptions(transaction: Transaction): List<ManualMat
         .map { item ->
             ManualMatchOption(
                 plannedItem = item,
-                remainingCents = (item.plannedCents - item.actualCents).coerceAtLeast(0L),
+                remainingCents = item.remainingMatchCents,
+                overpaidCents = item.overpaidCents,
                 matchedTransactions = transactions.filter { candidate ->
                     item.id in candidate.plannedItemIds
                 },
             )
         }
         .sortedWith(
-            compareByDescending<ManualMatchOption>(ManualMatchOption::isAvailable)
+            compareBy<ManualMatchOption>(ManualMatchOption::isPlanMet)
                 .thenByDescending { it.plannedItem.accountId == transaction.accountId }
                 .thenBy { it.plannedItem.dueDay ?: 32 }
                 .thenBy { it.plannedItem.name.lowercase(Locale.forLanguageTag("en-ZA")) },
@@ -455,27 +462,9 @@ fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
         .filter { it.includeInSafeToSpend }
         .sumOf { it.currentBalanceCents }
 
-    val matchedCentsByItem = mutableMapOf<String, Long>()
-    for (tx in transactions) {
-        if (tx.status == "posted" || tx.status == "pending") {
-            for (plannedId in tx.plannedItemIds) {
-                val current = matchedCentsByItem.getOrDefault(plannedId, 0L)
-                matchedCentsByItem[plannedId] = current + kotlin.math.abs(tx.amountCents)
-            }
-        }
-    }
-
     val rCents = plannedItems
         .filter { it.direction == "expense" }
-        .sumOf { item ->
-            val matched = if (item.manuallyPaid) {
-                item.plannedCents
-            } else {
-                maxOf(item.actualCents, matchedCentsByItem.getOrDefault(item.id, 0L))
-            }
-            val remaining = maxOf(0L, item.plannedCents - matched)
-            remaining
-        }
+        .sumOf(PlannedItem::remainingMatchCents)
 
     val stsAccountIds = accounts
         .filter { it.includeInSafeToSpend }

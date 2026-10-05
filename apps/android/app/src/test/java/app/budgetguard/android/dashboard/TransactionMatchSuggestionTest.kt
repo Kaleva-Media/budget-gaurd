@@ -75,7 +75,7 @@ class TransactionMatchSuggestionTest {
     }
 
     @Test
-    fun `manual matching excludes settled wrong-direction and existing items`() {
+    fun `manual matching keeps settled items but excludes wrong-direction and existing items`() {
         val settled = plannedExpense("settled", 50_000, actualCents = 50_000)
         val alreadyLinked = plannedExpense("linked", 60_000)
         val income = PlannedItem("salary", "income", "income", "Salary", 70_000, 0, null, null, 1, 0)
@@ -86,15 +86,16 @@ class TransactionMatchSuggestionTest {
             plannedItemMatchAmounts = mapOf("linked" to 20_000),
         )
 
-        assertTrue(
+        assertEquals(
+            listOf("settled"),
             dashboard(listOf(settled, alreadyLinked, income), listOf(payment))
                 .manualMatchCandidates(payment)
-                .isEmpty(),
+                .map(PlannedItem::id),
         )
     }
 
     @Test
-    fun `manual picker keeps settled items visible with their matching transaction`() {
+    fun `manual picker lets another transaction match a settled item`() {
         val levies = plannedExpense("levies", 166_942, actualCents = 166_942)
         val existingMatch = transaction(
             "existing",
@@ -110,8 +111,37 @@ class TransactionMatchSuggestionTest {
 
         assertEquals("levies", option.plannedItem.id)
         assertEquals(0, option.remainingCents)
-        assertEquals(false, option.isAvailable)
+        assertEquals(0, option.overpaidCents)
+        assertEquals(true, option.isPlanMet)
         assertEquals(listOf("existing"), option.matchedTransactions.map(Transaction::id))
+    }
+
+    @Test
+    fun `manual picker reports overpayment and keeps the plan selectable`() {
+        val petrol = plannedExpense("petrol", 400_000, actualCents = 425_000)
+        val existingPayments = listOf(
+            transaction(
+                "first",
+                -250_000,
+                plannedItemIds = listOf("petrol"),
+                plannedItemMatchAmounts = mapOf("petrol" to 250_000),
+            ),
+            transaction(
+                "second",
+                -175_000,
+                plannedItemIds = listOf("petrol"),
+                plannedItemMatchAmounts = mapOf("petrol" to 175_000),
+            ),
+        )
+        val nextPayment = transaction("third", -50_000)
+
+        val dashboard = dashboard(listOf(petrol), existingPayments + nextPayment)
+        val option = dashboard.manualMatchOptions(nextPayment).single()
+
+        assertEquals(listOf("petrol"), dashboard.manualMatchCandidates(nextPayment).map(PlannedItem::id))
+        assertEquals(0, option.remainingCents)
+        assertEquals(25_000, option.overpaidCents)
+        assertEquals(listOf("first", "second"), option.matchedTransactions.map(Transaction::id))
     }
 
     @Test

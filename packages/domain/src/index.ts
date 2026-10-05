@@ -316,7 +316,7 @@ export interface SafeToSpendInput {
 export interface SafeToSpendSummary {
   /** B — total SMS available balances for STS accounts */
   bCents: number;
-  /** R — remaining planned outflows (after subtracting matched posted + pending) */
+  /** R — remaining planned outflows after subtracting stored match allocations */
   rCents: number;
   /** P — all pending outflows on STS accounts (matched + unmatched; excludes transfer/reversal) */
   pCents: number;
@@ -333,22 +333,13 @@ export function summariseSafeToSpend(input: SafeToSpendInput): SafeToSpendSummar
     .filter((acc) => acc.includeInSafeToSpend)
     .reduce((sum, acc) => sum + acc.currentBalanceCents, 0);
 
-  const matchedCentsByItem = new Map<string, number>();
-  for (const tx of transactions) {
-    if (tx.status === "posted" || tx.status === "pending") {
-      for (const plannedId of tx.plannedItemIds) {
-        const current = matchedCentsByItem.get(plannedId) ?? 0;
-        matchedCentsByItem.set(plannedId, current + Math.abs(tx.amountCents));
-      }
-    }
-  }
-
   const rCents = plannedItems
     .filter((item) => item.direction === "expense")
     .reduce((sum, item) => {
-      const matched = item.manuallyPaid
-        ? item.plannedCents
-        : Math.max(item.actualCents, matchedCentsByItem.get(item.id) ?? 0);
+      // planned_item_progress.actual_cents is the authoritative sum of match
+      // allocations. A transaction link alone, a category, or "mark paid"
+      // must not change the bank-position calculation.
+      const matched = Math.max(0, item.actualCents);
       const remaining = Math.max(0, item.plannedCents - matched);
       return sum + remaining;
     }, 0);

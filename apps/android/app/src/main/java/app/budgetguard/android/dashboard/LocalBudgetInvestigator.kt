@@ -33,7 +33,7 @@ object LocalBudgetInvestigator {
         val explanation = buildString {
             append("I checked ${dashboard.month}. ")
             append("Your included SMS balances total ${formatZar(safe.bCents)}. ")
-            append("BudgetGuard is holding back ${formatZar(safe.rCents)} for unpaid plan items")
+            append("BudgetGuard is holding back ${formatZar(safe.rCents)} for plan amounts without matched payments")
             if (safe.pCents > 0) append(" and ${formatZar(safe.pCents)} for pending payments")
             append(", leaving Safe to spend at ${formatZar(safe.safeToSpendCents)}.")
 
@@ -164,7 +164,7 @@ object LocalBudgetInvestigator {
         }
         return buildString {
             append("For “${question.trim().take(80)}”, I found $outgoing outgoing ${if (outgoing == 1) "payment" else "payments"} in ${dashboard.month}. ")
-            append("Safe to spend is ${formatZar(safe.safeToSpendCents)} from ${formatZar(safe.bCents)} of included balances after ${formatZar(safe.rCents)} of remaining commitments and ${formatZar(safe.pCents)} pending.")
+            append("Safe to spend is ${formatZar(safe.safeToSpendCents)} from ${formatZar(safe.bCents)} of included balances after ${formatZar(safe.rCents)} of plan amounts without matched payments and ${formatZar(safe.pCents)} pending.")
             append("\n\nTry asking about a merchant name, pending payments, salary, largest unplanned payments, recent activity, or budget overruns for a more specific answer.")
         }
     }

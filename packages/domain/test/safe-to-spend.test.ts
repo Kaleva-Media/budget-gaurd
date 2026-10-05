@@ -97,15 +97,15 @@ describe("safe to spend (Home)", () => {
     expect(result.safeToSpendCents).toBe(350_000);
   });
 
-  test("manual paid confirmation removes expense from remaining commitments", () => {
+  test("manual paid confirmation does not change match-backed remaining commitments", () => {
     const result = summariseSafeToSpend({
       accounts: [stsAccount],
       plannedItems: [{ ...plannedExpense, manuallyPaid: true }],
       transactions: [],
     });
 
-    expect(result.rCents).toBe(0);
-    expect(result.safeToSpendCents).toBe(500_000);
+    expect(result.rCents).toBe(150_000);
+    expect(result.safeToSpendCents).toBe(350_000);
   });
 
   test("planned income does not affect STS", () => {
@@ -231,7 +231,7 @@ describe("safe to spend (Home)", () => {
 
     const result = summariseSafeToSpend({
       accounts: [stsAccount],
-      plannedItems: [plannedExpense],
+      plannedItems: [{ ...plannedExpense, actualCents: 150_000 }],
       transactions: [postedTx],
     });
 
@@ -269,7 +269,7 @@ describe("safe to spend (Home)", () => {
 
     const afterMatchedPending = summariseSafeToSpend({
       accounts: [stsAccount],
-      plannedItems: [plannedExpense],
+      plannedItems: [{ ...plannedExpense, actualCents: 150_000 }],
       transactions: [matchedPending],
     });
 
@@ -300,7 +300,7 @@ describe("safe to spend (Home)", () => {
 
     const result = summariseSafeToSpend({
       accounts: [stsAccount],
-      plannedItems: [plannedExpense],
+      plannedItems: [{ ...plannedExpense, actualCents: 100_000 }],
       transactions: [partialTx],
     });
 
@@ -409,7 +409,7 @@ describe("safe to spend (Home)", () => {
       kind: "fixed_expense",
       name: "Insurance",
       plannedCents: 80_000,
-      actualCents: 0,
+      actualCents: 80_000,
       accountId: "cheque",
       categoryId: "insurance",
       dueDay: 15,
@@ -529,7 +529,7 @@ describe("safe to spend (Home)", () => {
 
     const result = summariseSafeToSpend({
       accounts: [stsAccount],
-      plannedItems: [plannedExpense],
+      plannedItems: [{ ...plannedExpense, actualCents: 200_000 }],
       transactions: [overMatchedTx],
     });
 
