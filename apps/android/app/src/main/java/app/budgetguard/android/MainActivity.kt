@@ -77,6 +77,7 @@ import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.dashboard.exactTransactionMatchSuggestions
 import app.budgetguard.android.dashboard.manualMatchOptions
+import app.budgetguard.android.dashboard.summariseSafeToSpend
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -470,24 +471,47 @@ class MainActivity : ComponentActivity() {
         val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
 
         val cashflow = data.cashflowSummary()
+        val safeToSpend = data.summariseSafeToSpend()
         val heroSummary = data.homeHeroSummary()
+        val matchedIncomeCents = data.plannedItems
+            .filter { it.direction == "income" }
+            .sumOf { it.actualCents.coerceAtLeast(0L) }
+        val settledPlannedExpenseCents =
+            (cashflow.plannedExpenseCents - safeToSpend.rCents).coerceIn(0L, cashflow.plannedExpenseCents)
+        val reportableOutflows = data.transactions.filter { transaction ->
+            transaction.amountCents < 0L &&
+                transaction.status in setOf("posted", "pending") &&
+                transaction.kind !in setOf("transfer", "reversal")
+        }
+        val matchedTransactionCount = reportableOutflows.count { it.plannedItemIds.isNotEmpty() }
+        val categorisedTransactionCount = reportableOutflows.count {
+            it.plannedItemIds.isEmpty() && it.categoryId != null
+        }
+        val uncategorisedTransactionCount = reportableOutflows.count {
+            it.plannedItemIds.isEmpty() && it.categoryId == null
+        }
+        val leftAfterPlanCents = if (heroSummary.mode == HomeHeroMode.CURRENT_SAFE_TO_SPEND) {
+            safeToSpend.safeToSpendCents
+        } else {
+            cashflow.projectedSurplusCents
+        }
         val heroLabel = when (heroSummary.mode) {
             HomeHeroMode.FUTURE_DAILY_PLAN -> if (heroSummary.planPositionCents < 0) {
-                "PLANNED DAILY SHORTFALL"
+                "PROJECTED PLAN SHORTFALL"
             } else {
-                "PLANNED DAILY ALLOWANCE"
+                "PROJECTED AFTER PLAN"
             }
             HomeHeroMode.PAST_PLAN_RESULT -> "PERIOD PLAN RESULT"
             HomeHeroMode.CURRENT_SAFE_TO_SPEND -> if (heroSummary.amountCents < 0) {
-                "SAFE-TO-SPEND SHORTFALL"
+                "SHORTFALL AFTER PLANNED PAYMENTS"
             } else {
-                "SAFE TO SPEND"
+                "LEFT IN BANK AFTER PLAN"
             }
         }
         val heroDetail = when (heroSummary.mode) {
             HomeHeroMode.FUTURE_DAILY_PLAN -> {
                 val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
-                "${formatZar(heroSummary.planPositionCents)} projected $position ÷ ${heroSummary.dayCount} days"
+                "${formatZar(heroSummary.planPositionCents)} projected $position for the full cycle"
             }
             HomeHeroMode.PAST_PLAN_RESULT -> {
                 val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
@@ -495,32 +519,139 @@ class MainActivity : ComponentActivity() {
             }
             HomeHeroMode.CURRENT_SAFE_TO_SPEND -> {
                 if (heroSummary.amountCents < 0) {
-                    "Included balances do not cover remaining commitments"
+                    "Included balances do not cover the remaining plan and pending payments."
                 } else {
-                    "After unpaid planned expenses and pending payments"
+                    "Current included balances minus what is still planned and pending."
                 }
             }
         }
         val heroGuidance = when (heroSummary.mode) {
-            HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; this is not cash."
-            HomeHeroMode.PAST_PLAN_RESULT -> "Review activity for what actually happened."
-            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Based on accounts included in Safe to spend."
+            HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; current bank balances are not used."
+            HomeHeroMode.PAST_PLAN_RESULT -> "This compares the saved plan, not the historical closing bank balance."
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Posted transactions are already reflected in bank balances and are not deducted twice."
         }
-        val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
+
+        content.addView(label("Your cycle at a glance.", 31f, Palette.ink, bold = true).withTopMargin(22))
+        content.addView(label(
+            "Income, what remains after the plan, and the full planned expenditure for ${data.month}.",
+            14f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
+
+        val incomeReport = card(Palette.sage, radius = 24, padding = 18)
+        incomeReport.addView(label("TOTAL INCOME", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.1f })
+        incomeReport.addView(label(formatZar(cashflow.plannedIncomeCents), 30f, Palette.ink, bold = true).withTopMargin(8))
+        incomeReport.addView(label(
+            if (matchedIncomeCents > 0L) {
+                "${formatZar(matchedIncomeCents)} received and matched to the plan"
+            } else {
+                "Planned income · nothing matched as received yet"
+            },
+            13f,
+            Palette.inkSoft,
+        ).withTopMargin(5))
+        incomeReport.contentDescription =
+            "Total planned income ${formatZar(cashflow.plannedIncomeCents)}. ${formatZar(matchedIncomeCents)} received and matched."
+        content.addView(incomeReport.withTopMargin(18))
+
+        fun darkMoneyLine(name: String, amount: String): View = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(label(name, 13f, Palette.inkMuted), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label(amount, 14f, Color.WHITE, bold = true))
+        }
+
+        val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(12) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
-        hero.addView(label(formatZar(heroSummary.amountCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
+        hero.addView(label(formatZar(leftAfterPlanCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
         hero.addView(label(heroDetail, 14f, Palette.inkMuted).withTopMargin(7))
-        hero.addView(label(heroGuidance, 14f, Palette.inkMuted).withTopMargin(7))
-        val budget = data.budgetSummary()
-        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = if (budget.limitCents == 0L) 0 else (((budget.spentCents + budget.committedCents) * 100) / budget.limitCents).coerceIn(0, 100).toInt()
-            progressTintList = ColorStateList.valueOf(Palette.mint)
-            progressBackgroundTintList = ColorStateList.valueOf(Palette.inkRaised)
+        hero.addView(divider().apply { setBackgroundColor(Palette.inkRaised) }.withVerticalMargin(16))
+        when (heroSummary.mode) {
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> {
+                hero.addView(darkMoneyLine("Included bank balances", formatZar(safeToSpend.bCents)))
+                hero.addView(darkMoneyLine("Less: still planned to pay", "−${formatZar(safeToSpend.rCents)}").withTopMargin(9))
+                hero.addView(darkMoneyLine("Less: pending at the bank", "−${formatZar(safeToSpend.pCents)}").withTopMargin(9))
+                hero.addView(label(
+                    "$matchedTransactionCount matched  ·  $categorisedTransactionCount categorised only  ·  $uncategorisedTransactionCount uncategorised",
+                    11f,
+                    Palette.mint,
+                    bold = true,
+                ).withTopMargin(14))
+            }
+            HomeHeroMode.FUTURE_DAILY_PLAN,
+            HomeHeroMode.PAST_PLAN_RESULT -> {
+                hero.addView(darkMoneyLine("Carried forward", formatZar(data.period.carryoverCents)))
+                hero.addView(darkMoneyLine("Plus: planned income", formatZar(cashflow.plannedIncomeCents)).withTopMargin(9))
+                hero.addView(darkMoneyLine("Less: planned expenditure", "−${formatZar(cashflow.plannedExpenseCents)}").withTopMargin(9))
+            }
         }
-        hero.addView(progress.withHeight(6).withTopMargin(18))
-        hero.addView(label("${formatZar(budget.spentCents)} spent  ·  ${formatZar(budget.committedCents)} pending", 12f, Palette.inkMuted).withTopMargin(8))
+        hero.addView(label(heroGuidance, 12f, Palette.inkMuted).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }.withTopMargin(14))
+        hero.contentDescription = "$heroLabel ${formatZar(leftAfterPlanCents)}. $heroDetail $heroGuidance"
         content.addView(hero)
+
+        val expenseReport = card(Palette.peach, radius = 24, padding = 18)
+        expenseReport.addView(label("TOTAL PLANNED EXPENDITURE", 10f, Palette.coral, bold = true).apply {
+            letterSpacing = 0.1f
+        })
+        expenseReport.addView(label(formatZar(cashflow.plannedExpenseCents), 30f, Palette.ink, bold = true).withTopMargin(8))
+        expenseReport.addView(label(
+            "${formatZar(settledPlannedExpenseCents)} matched or confirmed  ·  ${formatZar(safeToSpend.rCents)} still planned",
+            13f,
+            Palette.inkSoft,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(5))
+        expenseReport.contentDescription =
+            "Total planned expenditure ${formatZar(cashflow.plannedExpenseCents)}. ${formatZar(settledPlannedExpenseCents)} matched or confirmed and ${formatZar(safeToSpend.rCents)} still planned."
+        content.addView(expenseReport.withTopMargin(12))
+
+        val accountBalances = card(Palette.canvas, radius = 24, padding = 18)
+        val accountHeading = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+        accountHeading.addView(vertical().apply {
+            addView(label("ACCOUNT BALANCES", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.1f })
+            addView(label("Latest balance for each account", 18f, Palette.ink, bold = true).withTopMargin(6))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        accountHeading.addView(label("Manage  →", 12f, Palette.moss, bold = true))
+        accountBalances.addView(accountHeading)
+        accountBalances.addView(label(
+            "Balances come from the latest supported account-specific bank message.",
+            12f,
+            Palette.muted,
+        ).withTopMargin(6))
+        if (data.accounts.isEmpty()) {
+            accountBalances.addView(label("No accounts are connected yet.", 13f, Palette.muted).withTopMargin(14))
+        } else {
+            data.accounts.sortedBy(Account::displayOrder).forEachIndexed { index, account ->
+                if (index == 0) {
+                    accountBalances.addView(divider().withVerticalMargin(14))
+                } else {
+                    accountBalances.addView(divider().withVerticalMargin(12))
+                }
+                val row = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+                val copy = vertical().apply {
+                    addView(label(account.name, 15f, Palette.ink, bold = true).apply { maxLines = 1 })
+                    addView(label(
+                        if (account.includeInSafeToSpend) "Included in left after plan" else "Not included in left after plan",
+                        11f,
+                        if (account.includeInSafeToSpend) Palette.moss else Palette.muted,
+                        bold = account.includeInSafeToSpend,
+                    ).withTopMargin(4))
+                }
+                row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(label(formatZar(account.currentBalanceCents), 16f, Palette.ink, bold = true).apply {
+                    gravity = Gravity.END
+                })
+                row.contentDescription =
+                    "${account.name}, balance ${formatZar(account.currentBalanceCents)}, ${if (account.includeInSafeToSpend) "included" else "not included"} in left after plan."
+                accountBalances.addView(row)
+            }
+        }
+        accountBalances.isClickable = true
+        accountBalances.isFocusable = true
+        accountBalances.setOnClickListener {
+            selectedScreen = Screen.ACCOUNTS
+            renderDashboard()
+        }
+        content.addView(accountBalances.withTopMargin(12))
 
         val signalRow = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
         signalRow.addView(metricCard("PERIOD END", formatZar(cashflow.projectedSurplusCents), "projected surplus", Palette.sage), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))

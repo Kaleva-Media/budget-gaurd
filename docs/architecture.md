@@ -89,6 +89,20 @@ Projected surplus is:
 
 `carryover + planned income - planned expenses`
 
+Android presents the current-cycle cash position separately from projected
+surplus. The homepage shows total planned income and total planned expenditure,
+then makes the current cash formula explicit: included SMS-backed account
+balances minus remaining planned outflows minus pending bank outflows. Matching
+or manually confirming a plan item reduces the remaining planned outflow.
+Posted matched, categorised-only, and uncategorised transactions are already
+reflected in the latest account balances and are therefore not subtracted a
+second time. A separate homepage report lists every account's latest supported
+SMS balance and whether the account contributes to that formula. This is current
+per-account state, not balance history: the schema still keeps the latest
+normalized account balance rather than a time series of balance snapshots. For
+future and past selections, the same card switches to the plan formula above and
+states that it is not a current or historical bank balance.
+
 Flexible category envelopes remain separate. They answer how much discretionary spending is still safe; the monthly plan answers whether known obligations and savings goals are funded.
 
 ## Local budget investigation

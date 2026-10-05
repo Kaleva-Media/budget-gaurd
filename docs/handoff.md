@@ -6,6 +6,27 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-05 Android homepage reporting source change**: Home now leads with
+  three explicit cycle reports in the requested order: total planned income,
+  money left after the plan, and total planned expenditure. For the active cycle,
+  the dark cash card shows the full equation as included SMS-backed bank balances
+  less remaining planned payments less pending bank payments. It also shows
+  matched, categorised-only, and uncategorised transaction counts and explains
+  that posted activity is already reflected in the balances rather than deducted
+  twice. Income shows the received-and-matched amount; expenditure shows matched
+  or manually confirmed value and what remains. A fourth account-balances report
+  lists the latest SMS-backed balance for every account, marks whether each one is
+  included in left-after-plan, and opens account management when tapped. This
+  exposes current per-account state; it does not add historical balance snapshots.
+  Future and past periods retain the projected plan equation and explicitly avoid
+  presenting it as bank cash.
+  Android advances to `0.6.8` (code 24). Source verification passed
+  `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
+  configured debug APK SHA-256 is
+  `9c138276406294bbd49ae58ea6f3e44ab8cd1a0093bb1afc5f2d697063d09b00`.
+  The source change has not been merged or deployed; installed-device behaviour
+  remains unverified.
+
 - **2026-10-05 Android match-picker and fixed-header source change**: The
   manual transaction-match picker is now a 91%-height bottom sheet instead of a
   platform text list. A fixed transaction summary shows the merchant,
