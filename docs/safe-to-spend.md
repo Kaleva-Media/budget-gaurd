@@ -95,3 +95,32 @@ interface SafeToSpendSummary {
 ```
 
 Golden tests with JSON fixtures for Android parity. Cite this document path and commit SHA in Vera runs.
+
+### Caller requirements (D-028)
+
+**Pass ALL open pending outflows** for the active workspace to `summariseSafeToSpend`. Do not paginate or truncate the transaction list to ~100 records. P must include every pending outflow on STS accounts to correctly represent commitments.
+
+Android implementations must load the complete set of pending transactions for the selected entity when calculating STS, not only the paginated Activity view.
+
+Optional helper for aggregating pending outflows before STS calculation:
+
+```typescript
+function aggregatePendingOutflows(
+  transactions: Transaction[],
+  stsAccountIds: Set<string>,
+): Transaction[] {
+  return transactions.filter(
+    (tx) =>
+      tx.status === "pending" &&
+      tx.amountCents < 0 &&
+      !["transfer", "reversal"].includes(tx.kind) &&
+      stsAccountIds.has(tx.accountId),
+  );
+}
+```
+
+### Split payment allocation
+
+When a transaction is matched to multiple planned items (split payment), the transaction amount is allocated across those items. The domain and Android implementations equal-split `|amount|` across `plannedItemIds.length` when the model provides only `plannedItemIds: string[]`. Future work may track per-line allocated amounts in `planned_item_matches.amount_cents`, enabling non-uniform splits where the sum of allocated amounts ≤ `|tx.amountCents|`.
+
+**Current behaviour:** A R90k pending matched to 3 plan lines allocates R30k to each line, reducing R by R30k × 3 = R90k total. The pending is counted once in P (R90k), keeping C = R90k stable before and after the match (Neo dedup rule).

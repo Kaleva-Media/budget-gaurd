@@ -536,4 +536,125 @@ describe("safe to spend (Home)", () => {
     expect(result.rCents).toBe(0);
     expect(result.safeToSpendCents).toBe(500_000);
   });
+
+  test("split payment: R90k payment matched to 3× R30k items reduces each R by R30k (D-027)", () => {
+    const rent: PlannedItem = {
+      id: "rent",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Rent",
+      plannedCents: 30_000,
+      actualCents: 30_000,
+      accountId: "cheque",
+      categoryId: "housing",
+      dueDay: 1,
+      sortOrder: 1,
+    };
+
+    const groceries: PlannedItem = {
+      id: "groceries",
+      direction: "expense",
+      kind: "variable_expense",
+      name: "Groceries",
+      plannedCents: 30_000,
+      actualCents: 30_000,
+      accountId: "cheque",
+      categoryId: "food",
+      dueDay: null,
+      sortOrder: 2,
+    };
+
+    const utilities: PlannedItem = {
+      id: "utilities",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Utilities",
+      plannedCents: 30_000,
+      actualCents: 30_000,
+      accountId: "cheque",
+      categoryId: "utilities",
+      dueDay: 15,
+      sortOrder: 3,
+    };
+
+    const splitPayment: Transaction = {
+      id: "split1",
+      accountId: "cheque",
+      categoryId: null,
+      occurredAt: "2026-09-17T10:00:00+02:00",
+      amountCents: -90_000,
+      status: "pending",
+      kind: "card_purchase",
+      source: "sms",
+      merchant: "Combined payment",
+      description: "Split across 3 items",
+      needsReview: false,
+      plannedItemIds: ["rent", "groceries", "utilities"],
+    };
+
+    const result = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [rent, groceries, utilities],
+      transactions: [splitPayment],
+    });
+
+    expect(result.rCents).toBe(0);
+    expect(result.pCents).toBe(90_000);
+    expect(result.cCents).toBe(90_000);
+    expect(result.safeToSpendCents).toBe(410_000);
+  });
+
+  test("split payment: unequal plan amounts with equal allocation", () => {
+    const bigExpense: PlannedItem = {
+      id: "big",
+      direction: "expense",
+      kind: "fixed_expense",
+      name: "Big expense",
+      plannedCents: 200_000,
+      actualCents: 50_000,
+      accountId: "cheque",
+      categoryId: null,
+      dueDay: 1,
+      sortOrder: 1,
+    };
+
+    const smallExpense: PlannedItem = {
+      id: "small",
+      direction: "expense",
+      kind: "variable_expense",
+      name: "Small expense",
+      plannedCents: 50_000,
+      actualCents: 50_000,
+      accountId: "cheque",
+      categoryId: null,
+      dueDay: null,
+      sortOrder: 2,
+    };
+
+    const splitPayment: Transaction = {
+      id: "split2",
+      accountId: "cheque",
+      categoryId: null,
+      occurredAt: "2026-09-17T10:00:00+02:00",
+      amountCents: -100_000,
+      status: "posted",
+      kind: "card_purchase",
+      source: "sms",
+      merchant: "Split merchant",
+      description: "100k split equally across 2 items",
+      needsReview: false,
+      plannedItemIds: ["big", "small"],
+    };
+
+    const result = summariseSafeToSpend({
+      accounts: [stsAccount],
+      plannedItems: [bigExpense, smallExpense],
+      transactions: [splitPayment],
+    });
+
+    expect(result.rCents).toBe(150_000);
+    expect(result.pCents).toBe(0);
+    expect(result.cCents).toBe(150_000);
+    expect(result.safeToSpendCents).toBe(350_000);
+  });
 });
