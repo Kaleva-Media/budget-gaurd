@@ -6,6 +6,61 @@ This document records repository state and historical observations, not a fresh 
 
 ## Recent changes
 
+- **2026-10-05 Android homepage reporting source change**: Home now leads with
+  three explicit cycle reports in the requested order: total planned income,
+  money left after the plan, and total planned expenditure. For the active cycle,
+  the dark cash card shows the full equation as included SMS-backed bank balances
+  less remaining planned payments less pending bank payments. It also shows
+  matched, categorised-only, and uncategorised transaction counts and explains
+  that posted activity is already reflected in the balances rather than deducted
+  twice. Income shows the received-and-matched amount; expenditure shows matched
+  or manually confirmed value and what remains. A fourth account-balances report
+  lists the latest SMS-backed balance for every account, marks whether each one is
+  included in left-after-plan, and opens account management when tapped. This
+  exposes current per-account state; it does not add historical balance snapshots.
+  Future and past periods retain the projected plan equation and explicitly avoid
+  presenting it as bank cash.
+  Android advances to `0.6.8` (code 24). Source verification passed
+  `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
+  configured debug APK SHA-256 is
+  `9c138276406294bbd49ae58ea6f3e44ab8cd1a0093bb1afc5f2d697063d09b00`.
+  The source change has not been merged or deployed; installed-device behaviour
+  remains unverified.
+
+- **2026-10-05 Android match-picker and fixed-header source change**: The
+  manual transaction-match picker is now a 91%-height bottom sheet instead of a
+  platform text list. A fixed transaction summary shows the merchant,
+  unallocated amount, cycle, and account; plan items appear as separated,
+  accessible cards with explicit remaining or already-matched states, account
+  routing, partial progress, and at least 82dp row height. Search filters by plan
+  or account name, while the summary, search area, and close action stay fixed as
+  the plan list scrolls. The main BudgetGuard/entity/cycle header now also sits
+  outside each screen's `ScrollView`, so it remains visible across Home, Ask
+  BudgetGuard, Debt freedom, Activity, Invoices, Accounts, and Profile & sync.
+  Android advances to `0.6.7` (code 23). Source verification passed
+  `:app:testDebugUnitTest`, `:app:lintDebug`, and `:app:assembleDebug`. The
+  configured debug APK SHA-256 is
+  `2fdce5f9c964c84e699d91f9ad36f5a4189b241ebf2066d6fad30af0e218c30e`.
+  This source change has not been merged or deployed; installed-device behaviour
+  remains unverified.
+
+- **2026-10-05 Android match-status picker source change**: The manual match
+  picker no longer hides fully satisfied plan items. It lists them after available
+  items with an “Already matched” status; opening one shows the known linked
+  transaction merchant, date, and allocated amount, or explains that the link is
+  outside the currently loaded cycle. The user is directed to remove the existing
+  link through that transaction's Manage matches action before replacing it. A
+  cycle with no same-direction plan items now says so explicitly instead of
+  implying that an existing match is missing. The picker uses a title and list
+  rather than combining `AlertDialog.setMessage` with `setItems`, because that
+  Android layout suppressed the list on the user's device. Android advances to
+  `0.6.6` (code 22), ensuring the corrected APK updates the already-installed
+  `0.6.5` build. Source verification passed `:parser:test`, `:app:testDebugUnitTest`,
+  `:app:lintDebug`, and `:app:assembleDebug` (76 unit tests: 20 parser and 56
+  app). The configured debug APK SHA-256 is
+  `676b87518303c4308a79320342bab8c676d9cbb0a6e86cb32c75452597a0450b`.
+  This source change has not been merged or deployed.
+
 - **2026-10-05 Android manual transaction matching deployment**: Activity now
   exposes “Match to plan” on eligible posted and pending transactions instead of
   relying only on exact automatic suggestions. The user selects any unfinished

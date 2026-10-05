@@ -76,7 +76,8 @@ import app.budgetguard.android.dashboard.formatZar
 import app.budgetguard.android.dashboard.groupPlannedItems
 import app.budgetguard.android.dashboard.homeHeroSummary
 import app.budgetguard.android.dashboard.exactTransactionMatchSuggestions
-import app.budgetguard.android.dashboard.manualMatchCandidates
+import app.budgetguard.android.dashboard.manualMatchOptions
+import app.budgetguard.android.dashboard.summariseSafeToSpend
 import app.budgetguard.android.sms.AccountMessageCandidate
 import app.budgetguard.android.sms.SmsAccountScanner
 import app.budgetguard.android.sync.CollectorStatus
@@ -427,6 +428,24 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Palette.paper)
         }
+        val screenTitle = when (selectedScreen) {
+            Screen.HOME -> "Home"
+            Screen.ASSISTANT -> "Budget assistant"
+            Screen.DEBT -> "Debt freedom"
+            Screen.TRANSACTIONS -> "Activity"
+            Screen.INVOICES -> "Invoices"
+            Screen.ACCOUNTS -> "Accounts"
+            Screen.PROFILE -> "Profile & sync"
+        }
+        val fixedHeader = vertical().apply {
+            setBackgroundColor(Palette.paper)
+            elevation = dp(4).toFloat()
+            addView(buildHeader(screenTitle).apply {
+                setPadding(dp(20), dp(14), dp(20), dp(12))
+            })
+            addView(divider())
+        }
+        root.addView(fixedHeader)
         val scroller = ScrollView(this).apply {
             isFillViewport = true
             addView(when (selectedScreen) {
@@ -449,28 +468,50 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildHome(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Home"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
 
         val cashflow = data.cashflowSummary()
+        val safeToSpend = data.summariseSafeToSpend()
         val heroSummary = data.homeHeroSummary()
+        val matchedIncomeCents = data.plannedItems
+            .filter { it.direction == "income" }
+            .sumOf { it.actualCents.coerceAtLeast(0L) }
+        val settledPlannedExpenseCents =
+            (cashflow.plannedExpenseCents - safeToSpend.rCents).coerceIn(0L, cashflow.plannedExpenseCents)
+        val reportableOutflows = data.transactions.filter { transaction ->
+            transaction.amountCents < 0L &&
+                transaction.status in setOf("posted", "pending") &&
+                transaction.kind !in setOf("transfer", "reversal")
+        }
+        val matchedTransactionCount = reportableOutflows.count { it.plannedItemIds.isNotEmpty() }
+        val categorisedTransactionCount = reportableOutflows.count {
+            it.plannedItemIds.isEmpty() && it.categoryId != null
+        }
+        val uncategorisedTransactionCount = reportableOutflows.count {
+            it.plannedItemIds.isEmpty() && it.categoryId == null
+        }
+        val leftAfterPlanCents = if (heroSummary.mode == HomeHeroMode.CURRENT_SAFE_TO_SPEND) {
+            safeToSpend.safeToSpendCents
+        } else {
+            cashflow.projectedSurplusCents
+        }
         val heroLabel = when (heroSummary.mode) {
             HomeHeroMode.FUTURE_DAILY_PLAN -> if (heroSummary.planPositionCents < 0) {
-                "PLANNED DAILY SHORTFALL"
+                "PROJECTED PLAN SHORTFALL"
             } else {
-                "PLANNED DAILY ALLOWANCE"
+                "PROJECTED AFTER PLAN"
             }
             HomeHeroMode.PAST_PLAN_RESULT -> "PERIOD PLAN RESULT"
             HomeHeroMode.CURRENT_SAFE_TO_SPEND -> if (heroSummary.amountCents < 0) {
-                "SAFE-TO-SPEND SHORTFALL"
+                "SHORTFALL AFTER PLANNED PAYMENTS"
             } else {
-                "SAFE TO SPEND"
+                "LEFT IN BANK AFTER PLAN"
             }
         }
         val heroDetail = when (heroSummary.mode) {
             HomeHeroMode.FUTURE_DAILY_PLAN -> {
                 val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
-                "${formatZar(heroSummary.planPositionCents)} projected $position ÷ ${heroSummary.dayCount} days"
+                "${formatZar(heroSummary.planPositionCents)} projected $position for the full cycle"
             }
             HomeHeroMode.PAST_PLAN_RESULT -> {
                 val position = if (heroSummary.planPositionCents < 0) "shortfall" else "surplus"
@@ -478,32 +519,139 @@ class MainActivity : ComponentActivity() {
             }
             HomeHeroMode.CURRENT_SAFE_TO_SPEND -> {
                 if (heroSummary.amountCents < 0) {
-                    "Included balances do not cover remaining commitments"
+                    "Included balances do not cover the remaining plan and pending payments."
                 } else {
-                    "After unpaid planned expenses and pending payments"
+                    "Current included balances minus what is still planned and pending."
                 }
             }
         }
         val heroGuidance = when (heroSummary.mode) {
-            HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; this is not cash."
-            HomeHeroMode.PAST_PLAN_RESULT -> "Review activity for what actually happened."
-            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Based on accounts included in Safe to spend."
+            HomeHeroMode.FUTURE_DAILY_PLAN -> "Forecast only — planned income is included; current bank balances are not used."
+            HomeHeroMode.PAST_PLAN_RESULT -> "This compares the saved plan, not the historical closing bank balance."
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> "Posted transactions are already reflected in bank balances and are not deducted twice."
         }
-        val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(22) as LinearLayout
+
+        content.addView(label("Your cycle at a glance.", 31f, Palette.ink, bold = true).withTopMargin(22))
+        content.addView(label(
+            "Income, what remains after the plan, and the full planned expenditure for ${data.month}.",
+            14f,
+            Palette.muted,
+        ).apply { setLineSpacing(dp(3).toFloat(), 1f) }.withTopMargin(7))
+
+        val incomeReport = card(Palette.sage, radius = 24, padding = 18)
+        incomeReport.addView(label("TOTAL INCOME", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.1f })
+        incomeReport.addView(label(formatZar(cashflow.plannedIncomeCents), 30f, Palette.ink, bold = true).withTopMargin(8))
+        incomeReport.addView(label(
+            if (matchedIncomeCents > 0L) {
+                "${formatZar(matchedIncomeCents)} received and matched to the plan"
+            } else {
+                "Planned income · nothing matched as received yet"
+            },
+            13f,
+            Palette.inkSoft,
+        ).withTopMargin(5))
+        incomeReport.contentDescription =
+            "Total planned income ${formatZar(cashflow.plannedIncomeCents)}. ${formatZar(matchedIncomeCents)} received and matched."
+        content.addView(incomeReport.withTopMargin(18))
+
+        fun darkMoneyLine(name: String, amount: String): View = horizontal().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(label(name, 13f, Palette.inkMuted), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label(amount, 14f, Color.WHITE, bold = true))
+        }
+
+        val hero = card(Palette.ink, radius = 30, padding = 22).withTopMargin(12) as LinearLayout
         hero.addView(label(heroLabel, 11f, Palette.mint, bold = true).apply { letterSpacing = 0.11f })
-        hero.addView(label(formatZar(heroSummary.amountCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
+        hero.addView(label(formatZar(leftAfterPlanCents), 39f, Color.WHITE, bold = true).withTopMargin(7))
         hero.addView(label(heroDetail, 14f, Palette.inkMuted).withTopMargin(7))
-        hero.addView(label(heroGuidance, 14f, Palette.inkMuted).withTopMargin(7))
-        val budget = data.budgetSummary()
-        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = if (budget.limitCents == 0L) 0 else (((budget.spentCents + budget.committedCents) * 100) / budget.limitCents).coerceIn(0, 100).toInt()
-            progressTintList = ColorStateList.valueOf(Palette.mint)
-            progressBackgroundTintList = ColorStateList.valueOf(Palette.inkRaised)
+        hero.addView(divider().apply { setBackgroundColor(Palette.inkRaised) }.withVerticalMargin(16))
+        when (heroSummary.mode) {
+            HomeHeroMode.CURRENT_SAFE_TO_SPEND -> {
+                hero.addView(darkMoneyLine("Included bank balances", formatZar(safeToSpend.bCents)))
+                hero.addView(darkMoneyLine("Less: still planned to pay", "−${formatZar(safeToSpend.rCents)}").withTopMargin(9))
+                hero.addView(darkMoneyLine("Less: pending at the bank", "−${formatZar(safeToSpend.pCents)}").withTopMargin(9))
+                hero.addView(label(
+                    "$matchedTransactionCount matched  ·  $categorisedTransactionCount categorised only  ·  $uncategorisedTransactionCount uncategorised",
+                    11f,
+                    Palette.mint,
+                    bold = true,
+                ).withTopMargin(14))
+            }
+            HomeHeroMode.FUTURE_DAILY_PLAN,
+            HomeHeroMode.PAST_PLAN_RESULT -> {
+                hero.addView(darkMoneyLine("Carried forward", formatZar(data.period.carryoverCents)))
+                hero.addView(darkMoneyLine("Plus: planned income", formatZar(cashflow.plannedIncomeCents)).withTopMargin(9))
+                hero.addView(darkMoneyLine("Less: planned expenditure", "−${formatZar(cashflow.plannedExpenseCents)}").withTopMargin(9))
+            }
         }
-        hero.addView(progress.withHeight(6).withTopMargin(18))
-        hero.addView(label("${formatZar(budget.spentCents)} spent  ·  ${formatZar(budget.committedCents)} pending", 12f, Palette.inkMuted).withTopMargin(8))
+        hero.addView(label(heroGuidance, 12f, Palette.inkMuted).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }.withTopMargin(14))
+        hero.contentDescription = "$heroLabel ${formatZar(leftAfterPlanCents)}. $heroDetail $heroGuidance"
         content.addView(hero)
+
+        val expenseReport = card(Palette.peach, radius = 24, padding = 18)
+        expenseReport.addView(label("TOTAL PLANNED EXPENDITURE", 10f, Palette.coral, bold = true).apply {
+            letterSpacing = 0.1f
+        })
+        expenseReport.addView(label(formatZar(cashflow.plannedExpenseCents), 30f, Palette.ink, bold = true).withTopMargin(8))
+        expenseReport.addView(label(
+            "${formatZar(settledPlannedExpenseCents)} matched or confirmed  ·  ${formatZar(safeToSpend.rCents)} still planned",
+            13f,
+            Palette.inkSoft,
+        ).apply { setLineSpacing(dp(2).toFloat(), 1f) }.withTopMargin(5))
+        expenseReport.contentDescription =
+            "Total planned expenditure ${formatZar(cashflow.plannedExpenseCents)}. ${formatZar(settledPlannedExpenseCents)} matched or confirmed and ${formatZar(safeToSpend.rCents)} still planned."
+        content.addView(expenseReport.withTopMargin(12))
+
+        val accountBalances = card(Palette.canvas, radius = 24, padding = 18)
+        val accountHeading = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+        accountHeading.addView(vertical().apply {
+            addView(label("ACCOUNT BALANCES", 10f, Palette.moss, bold = true).apply { letterSpacing = 0.1f })
+            addView(label("Latest balance for each account", 18f, Palette.ink, bold = true).withTopMargin(6))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        accountHeading.addView(label("Manage  →", 12f, Palette.moss, bold = true))
+        accountBalances.addView(accountHeading)
+        accountBalances.addView(label(
+            "Balances come from the latest supported account-specific bank message.",
+            12f,
+            Palette.muted,
+        ).withTopMargin(6))
+        if (data.accounts.isEmpty()) {
+            accountBalances.addView(label("No accounts are connected yet.", 13f, Palette.muted).withTopMargin(14))
+        } else {
+            data.accounts.sortedBy(Account::displayOrder).forEachIndexed { index, account ->
+                if (index == 0) {
+                    accountBalances.addView(divider().withVerticalMargin(14))
+                } else {
+                    accountBalances.addView(divider().withVerticalMargin(12))
+                }
+                val row = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+                val copy = vertical().apply {
+                    addView(label(account.name, 15f, Palette.ink, bold = true).apply { maxLines = 1 })
+                    addView(label(
+                        if (account.includeInSafeToSpend) "Included in left after plan" else "Not included in left after plan",
+                        11f,
+                        if (account.includeInSafeToSpend) Palette.moss else Palette.muted,
+                        bold = account.includeInSafeToSpend,
+                    ).withTopMargin(4))
+                }
+                row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(label(formatZar(account.currentBalanceCents), 16f, Palette.ink, bold = true).apply {
+                    gravity = Gravity.END
+                })
+                row.contentDescription =
+                    "${account.name}, balance ${formatZar(account.currentBalanceCents)}, ${if (account.includeInSafeToSpend) "included" else "not included"} in left after plan."
+                accountBalances.addView(row)
+            }
+        }
+        accountBalances.isClickable = true
+        accountBalances.isFocusable = true
+        accountBalances.setOnClickListener {
+            selectedScreen = Screen.ACCOUNTS
+            renderDashboard()
+        }
+        content.addView(accountBalances.withTopMargin(12))
 
         val signalRow = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
         signalRow.addView(metricCard("PERIOD END", formatZar(cashflow.projectedSurplusCents), "projected surplus", Palette.sage), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -726,8 +874,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildBudgetAssistant(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
-        content.addView(buildHeader("Budget assistant"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 32)
         content.addView(label("Ask what happened.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label(
             "This first version investigates normalized data already loaded for ${data.entity.name}. It runs locally and does not send your transactions or questions to an AI provider.",
@@ -811,8 +958,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildDebtFreedom(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 32)
-        content.addView(buildHeader("Debt freedom"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 32)
         content.addView(label("Your route out of debt.", 30f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label(
             "A practical monthly plan, based on ${data.entity.name}'s balances, income, expenses, and flexible budgets.",
@@ -1508,8 +1654,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildTransactions(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Activity"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Every movement.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Tap a category to sort a payment. Pending card reservations stay separate from posted spend.", 14f, Palette.muted).withTopMargin(7))
 
@@ -1548,8 +1693,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildAccounts(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Accounts"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Every account has a job.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("These accounts belong to ${data.entity.name}. The SMS identifier must match the account label in the bank notification; FNB accounts use the visible suffix.", 14f, Palette.muted).withTopMargin(7))
         val accountActions = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -1589,8 +1733,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildInvoices(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Invoices"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Expenses that come to you.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Forward an email with a PDF invoice. BudgetGuard extracts the supplier, amount, dates and bank details, then waits for your approval before changing the plan.", 14f, Palette.muted).apply {
             setLineSpacing(dp(3).toFloat(), 1f)
@@ -1809,8 +1952,7 @@ class MainActivity : ComponentActivity() {
         if (currency == "ZAR") formatZar(cents) else "$currency ${BigDecimal.valueOf(cents, 2).toPlainString()}"
 
     private fun buildProfileAndSync(data: MobileDashboard): View {
-        val content = pageColumn(horizontal = 20, top = 22, bottom = 28)
-        content.addView(buildHeader("Profile & sync"))
+        val content = pageColumn(horizontal = 20, top = 0, bottom = 28)
         content.addView(label("Your private workspace.", 31f, Palette.ink, bold = true).withTopMargin(22))
         content.addView(label("Account identity, phone permissions, and background delivery in one place.", 14f, Palette.muted).withTopMargin(7))
 
@@ -2883,13 +3025,13 @@ class MainActivity : ComponentActivity() {
         val existing = transaction.plannedItemIds.map { plannedId ->
             plannedId to data.plannedItems.firstOrNull { it.id == plannedId }
         }
-        val canAdd = data.manualMatchCandidates(transaction).isNotEmpty()
+        val canInspectAnother = data.manualMatchOptions(transaction).isNotEmpty()
         val options = buildList {
             existing.forEach { (plannedId, item) ->
                 val amount = transaction.plannedItemMatchAmounts[plannedId]
                 add("Remove ${item?.name ?: "planned item"}${amount?.let { " · ${formatZar(it)}" }.orEmpty()}")
             }
-            if (canAdd) add("+ Match another planned item")
+            if (canInspectAnother) add("+ Match or inspect another plan item")
         }
         AlertDialog.Builder(this)
             .setTitle("Manage transaction matches")
@@ -2906,33 +3048,227 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showManualMatchPicker(data: MobileDashboard, transaction: Transaction) {
-        val candidates = data.manualMatchCandidates(transaction)
-        if (candidates.isEmpty()) {
+        val matchOptions = data.manualMatchOptions(transaction)
+        if (matchOptions.isEmpty()) {
             AlertDialog.Builder(this)
-                .setTitle("No available plan items")
-                .setMessage("There are no unfinished ${if (transaction.amountCents < 0) "expenses" else "income items"} in ${data.month} that can receive the unallocated amount from this transaction.")
+                .setTitle("No plan items in this cycle")
+                .setMessage("There are no ${if (transaction.amountCents < 0) "expense" else "income"} plan items in ${data.month}. The transaction is still unmatched.")
                 .setPositiveButton("OK", null)
                 .show()
             return
         }
         val transactionAccount = data.accounts.firstOrNull { it.id == transaction.accountId }
-        val options = candidates.map { item ->
-            val remaining = (item.plannedCents - item.actualCents).coerceAtLeast(0L)
-            val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
-            val accountText = when {
-                item.accountId == null -> "No plan account"
-                item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
-                else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
+        val dialog = Dialog(this)
+        val sheet = card(Palette.paper, radius = 30, padding = 0).apply {
+            clipToOutline = true
+            isFocusableInTouchMode = true
+            requestFocus()
+        }
+
+        sheet.addView(View(this).apply {
+            background = rounded(Palette.line, 2)
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(10)
             }
-            "${item.name} · ${formatZar(remaining)} remaining\n$accountText"
+        })
+
+        val header = vertical().apply {
+            setPadding(dp(20), dp(16), dp(20), dp(14))
+            addView(label("MATCH TRANSACTION", 10f, Palette.moss, bold = true).apply {
+                letterSpacing = 0.1f
+            })
+            addView(label("Choose a plan item", 24f, Palette.ink, bold = true).withTopMargin(7))
+            addView(label(
+                "${transaction.merchant} · ${formatZar(transaction.unallocatedMatchCents())} available",
+                14f,
+                Palette.inkSoft,
+                bold = true,
+            ).withTopMargin(7))
+            addView(label(
+                "${data.month} · ${transactionAccount?.name ?: "Account"}",
+                12f,
+                Palette.muted,
+            ).withTopMargin(4))
+        }
+        sheet.addView(header)
+        sheet.addView(divider())
+
+        val controls = vertical().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
+        val search = input("Search plan items").apply {
+            contentDescription = "Search planned items"
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        controls.addView(search)
+        val resultsLabel = label("", 11f, Palette.muted, bold = true).apply {
+            letterSpacing = 0.04f
+        }
+        controls.addView(resultsLabel.withTopMargin(10))
+        sheet.addView(controls)
+
+        val list = vertical().apply { setPadding(dp(16), 0, dp(16), dp(14)) }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            addView(list)
+        }
+        sheet.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        fun renderOptions(query: String = "") {
+            list.removeAllViews()
+            val normalizedQuery = query.trim().lowercase(Locale.getDefault())
+            val visibleOptions = matchOptions.filter { option ->
+                val item = option.plannedItem
+                val planAccountName = data.accounts.firstOrNull { it.id == item.accountId }?.name.orEmpty()
+                normalizedQuery.isBlank() ||
+                    item.name.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
+                    planAccountName.lowercase(Locale.getDefault()).contains(normalizedQuery)
+            }
+            val availableCount = visibleOptions.count { it.isAvailable }
+            resultsLabel.text = buildString {
+                append("$availableCount AVAILABLE")
+                val matchedCount = visibleOptions.size - availableCount
+                if (matchedCount > 0) append("  ·  $matchedCount ALREADY MATCHED")
+            }
+
+            if (visibleOptions.isEmpty()) {
+                list.addView(emptyCard("No plan items match “${query.trim()}”. Try another name or account.").withTopMargin(8))
+                return
+            }
+
+            visibleOptions.forEachIndexed { index, option ->
+                val item = option.plannedItem
+                val planAccount = data.accounts.firstOrNull { it.id == item.accountId }
+                val accountText = when {
+                    item.accountId == null -> "No plan account"
+                    item.accountId == transaction.accountId -> planAccount?.name ?: "Same account"
+                    else -> "${planAccount?.name ?: "Different account"} · transaction uses ${transactionAccount?.name ?: "another account"}"
+                }
+                val row = card(
+                    if (option.isAvailable) Palette.canvas else Palette.paper,
+                    radius = 20,
+                    padding = 16,
+                ).apply {
+                    background = rounded(
+                        if (option.isAvailable) Palette.canvas else Palette.paper,
+                        20,
+                        if (option.isAvailable) Palette.sage else Palette.line,
+                    )
+                    minimumHeight = dp(82)
+                    isClickable = true
+                    isFocusable = true
+                }
+                val top = horizontal().apply { gravity = Gravity.CENTER_VERTICAL }
+                val copy = vertical().apply {
+                    addView(label(item.name, 16f, Palette.ink, bold = true).apply { maxLines = 2 })
+                    addView(label(
+                        if (option.isAvailable) {
+                            "${formatZar(option.remainingCents)} remaining"
+                        } else {
+                            "Already matched · View details"
+                        },
+                        13f,
+                        if (option.isAvailable) Palette.moss else Palette.muted,
+                        bold = true,
+                    ).withTopMargin(5))
+                }
+                top.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                top.addView(label("›", 24f, if (option.isAvailable) Palette.moss else Palette.muted, bold = true).apply {
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(dp(32), dp(44)))
+                row.addView(top)
+                row.addView(label(
+                    accountText,
+                    11f,
+                    if (item.accountId != null && item.accountId != transaction.accountId) Palette.coral else Palette.muted,
+                ).withTopMargin(9))
+                if (option.isAvailable && item.actualCents > 0L) {
+                    row.addView(label("${formatZar(item.actualCents)} matched so far", 11f, Palette.moss, bold = true).withTopMargin(4))
+                }
+                row.contentDescription = if (option.isAvailable) {
+                    "${item.name}, ${formatZar(option.remainingCents)} remaining, $accountText. Tap to match."
+                } else {
+                    "${item.name}, already matched. Tap to view details."
+                }
+                row.setOnClickListener {
+                    dialog.dismiss()
+                    if (option.isAvailable) {
+                        showManualMatchAmountDialog(transaction, item)
+                    } else {
+                        showExistingPlanMatchDetails(item, option.matchedTransactions)
+                    }
+                }
+                list.addView(row.withTopMargin(if (index == 0) 4 else 10))
+            }
+        }
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                renderOptions(value?.toString().orEmpty())
+            }
+            override fun afterTextChanged(value: Editable?) = Unit
+        })
+        renderOptions()
+
+        val footer = vertical().apply {
+            setBackgroundColor(Palette.paper)
+            setPadding(dp(16), dp(10), dp(16), dp(18))
+            addView(divider())
+            addView(action("Cancel", primary = false).apply {
+                contentDescription = "Close plan item picker"
+                setOnClickListener { dialog.dismiss() }
+            }.withTopMargin(10))
+        }
+        sheet.addView(footer)
+
+        dialog.setContentView(sheet)
+        dialog.setOnShowListener {
+            dialog.window?.apply {
+                setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.91f).toInt())
+                setGravity(Gravity.BOTTOM)
+                setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN,
+                )
+                attributes = attributes.apply { dimAmount = 0.58f }
+                addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                setWindowAnimations(R.style.BudgetGuardSheetAnimation)
+                decorView.setPadding(dp(10), 0, dp(10), dp(10))
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showExistingPlanMatchDetails(
+        item: PlannedItem,
+        matchingTransactions: List<Transaction>,
+    ) {
+        val matchIsOutsideCycle = matchingTransactions.isEmpty()
+        val matchDetails = if (matchIsOutsideCycle) {
+            "Its linked transaction is not in the currently loaded cycle."
+        } else {
+            matchingTransactions.joinToString("\n") { transaction ->
+                val amount = transaction.plannedItemMatchAmounts[item.id]
+                buildString {
+                    append("• ${transaction.merchant} · ${formatTransactionDate(transaction.occurredOn)}")
+                    if (amount != null) append(" · ${formatZar(amount)}")
+                }
+            }
+        }
+        val guidance = if (matchIsOutsideCycle) {
+            "Switch to the cycle containing the linked transaction, then use Manage matches there before replacing it."
+        } else {
+            "Use Manage matches on the linked transaction and remove that match first."
         }
         AlertDialog.Builder(this)
-            .setTitle("Match ${transaction.merchant}")
-            .setMessage("Choose a planned item from ${data.month}. Different amounts and accounts are allowed because you are selecting the match yourself.")
-            .setItems(options.toTypedArray()) { _, index ->
-                showManualMatchAmountDialog(transaction, candidates[index])
-            }
-            .setNegativeButton("Cancel", null)
+            .setTitle("${item.name} is already matched")
+            .setMessage(
+                "BudgetGuard currently counts ${formatZar(item.actualCents)} against ${formatZar(item.plannedCents)} planned.\n\n" +
+                    "$matchDetails\n\n$guidance",
+            )
+            .setPositiveButton("OK", null)
             .show()
     }
 
