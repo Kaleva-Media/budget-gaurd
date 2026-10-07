@@ -789,6 +789,39 @@ class SupabaseCollectorClient private constructor(
     ) {
         require(amountCents > 0) { "A transaction match amount must be positive." }
         val userId = authenticatedUserId()
+        
+        // D-027 enforcement: prevent over-allocation across all items for this transaction
+        val transaction = client.from("transactions")
+            .select {
+                filter {
+                    eq("id", transactionId)
+                    eq("user_id", userId)
+                }
+            }
+            .decodeSingleOrNull<TransactionAmountRow>()
+            ?: error("Transaction not found or not owned by user.")
+        
+        val existingMatches = client.from("planned_item_matches")
+            .select {
+                filter {
+                    eq("transaction_id", transactionId)
+                    eq("user_id", userId)
+                }
+            }
+            .decodeList<ExistingMatchRow>()
+        
+        val existing = existingMatches.map { it.plannedItemId to it.amountCents }
+        val errorMessage = checkMatchAllocation(
+            transactionAmountCents = transaction.amountCents,
+            existing = existing,
+            plannedItemId = plannedItemId,
+            newAmountCents = amountCents,
+        )
+        
+        if (errorMessage != null) {
+            error(errorMessage)
+        }
+        
         client.from("planned_item_matches").upsert(
             NewPlannedItemMatch(
                 userId = userId,
@@ -807,6 +840,7 @@ class SupabaseCollectorClient private constructor(
             }
         }
     }
+
 
     suspend fun removePlannedItemMatch(
         plannedItemId: String,
@@ -1418,7 +1452,7 @@ private data class PlannedItemRow(
 )
 
 @Serializable
-private data class TransactionRow(
+internal data class TransactionRow(
     val id: String,
     @SerialName("account_id") val accountId: String,
     @SerialName("category_id") val categoryId: String?,
@@ -1455,6 +1489,17 @@ private data class NewPlannedItemMatch(
     @SerialName("user_id") val userId: String,
     @SerialName("planned_item_id") val plannedItemId: String,
     @SerialName("transaction_id") val transactionId: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
+private data class TransactionAmountRow(
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
+private data class ExistingMatchRow(
+    @SerialName("planned_item_id") val plannedItemId: String,
     @SerialName("amount_cents") val amountCents: Long,
 )
 

@@ -597,6 +597,148 @@ class SafeToSpendTest {
         assertEquals(500_000L, result.safeToSpendCents)
     }
 
+    @Test
+    fun splitPaymentAllocatesAmountAcrossPlannedItems() {
+        val rent = PlannedItem(
+            id = "rent",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Rent",
+            plannedCents = 30_000,
+            actualCents = 30_000,
+            accountId = "cheque",
+            categoryId = "housing",
+            dueDay = 1,
+            sortOrder = 1,
+        )
+        val groceries = PlannedItem(
+            id = "groceries",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Groceries",
+            plannedCents = 30_000,
+            actualCents = 30_000,
+            accountId = "cheque",
+            categoryId = "food",
+            dueDay = null,
+            sortOrder = 2,
+        )
+        val utilities = PlannedItem(
+            id = "utilities",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Utilities",
+            plannedCents = 30_000,
+            actualCents = 30_000,
+            accountId = "cheque",
+            categoryId = "utilities",
+            dueDay = 15,
+            sortOrder = 3,
+        )
+
+        val splitPayment = Transaction(
+            id = "split1",
+            accountId = "cheque",
+            categoryId = null,
+            occurredOn = "2026-09-17",
+            occurredAt = "2026-09-17T10:00:00+02:00",
+            amountCents = -90_000,
+            status = "pending",
+            kind = "card_purchase",
+            merchant = "Combined payment",
+            description = "Split across 3 items",
+            needsReview = false,
+            plannedItemIds = listOf("rent", "groceries", "utilities"),
+            plannedItemMatchAmounts = mapOf("rent" to 30_000, "groceries" to 30_000, "utilities" to 30_000),
+        )
+
+        val result = MobileDashboard(
+            month = "September – October 2026",
+            profileDisplayName = "Edward",
+            entity = Entity("personal", "Personal", "personal", true, 1),
+            entities = listOf(Entity("personal", "Personal", "personal", true, 1)),
+            period = BudgetPeriod("period", "2026-09-01", "active", 100_000),
+            periods = listOf(BudgetPeriod("period", "2026-09-01", "active", 100_000)),
+            accounts = listOf(stsAccount),
+            categories = emptyList(),
+            budgets = emptyList(),
+            plannedItems = listOf(rent, groceries, utilities),
+            transactions = listOf(splitPayment),
+            invoiceInbox = null,
+            invoices = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(0L, result.rCents)
+        assertEquals(90_000L, result.pCents)
+        assertEquals(90_000L, result.cCents)
+        assertEquals(410_000L, result.safeToSpendCents)
+    }
+
+    @Test
+    fun splitPaymentUsesStoredActualCents() {
+        val big = PlannedItem(
+            id = "big",
+            direction = "expense",
+            kind = "fixed_expense",
+            name = "Big expense",
+            plannedCents = 200_000,
+            actualCents = 50_000,
+            accountId = "cheque",
+            categoryId = null,
+            dueDay = 1,
+            sortOrder = 1,
+        )
+        val small = PlannedItem(
+            id = "small",
+            direction = "expense",
+            kind = "variable_expense",
+            name = "Small expense",
+            plannedCents = 50_000,
+            actualCents = 50_000,
+            accountId = "cheque",
+            categoryId = null,
+            dueDay = null,
+            sortOrder = 2,
+        )
+
+        val splitPayment = Transaction(
+            id = "split2",
+            accountId = "cheque",
+            categoryId = null,
+            occurredOn = "2026-09-17",
+            occurredAt = "2026-09-17T10:00:00+02:00",
+            amountCents = -100_000,
+            status = "posted",
+            kind = "card_purchase",
+            merchant = "Split merchant",
+            description = "100k split equally across 2 items",
+            needsReview = false,
+            plannedItemIds = listOf("big", "small"),
+            plannedItemMatchAmounts = emptyMap(),
+        )
+
+        val result = MobileDashboard(
+            month = "September – October 2026",
+            profileDisplayName = "Edward",
+            entity = Entity("personal", "Personal", "personal", true, 1),
+            entities = listOf(Entity("personal", "Personal", "personal", true, 1)),
+            period = BudgetPeriod("period", "2026-09-01", "active", 100_000),
+            periods = listOf(BudgetPeriod("period", "2026-09-01", "active", 100_000)),
+            accounts = listOf(stsAccount),
+            categories = emptyList(),
+            budgets = emptyList(),
+            plannedItems = listOf(big, small),
+            transactions = listOf(splitPayment),
+            invoiceInbox = null,
+            invoices = emptyList(),
+        ).summariseSafeToSpend()
+
+        assertEquals(150_000L, result.rCents)
+        assertEquals(0L, result.pCents)
+        assertEquals(150_000L, result.cCents)
+        assertEquals(350_000L, result.safeToSpendCents)
+    }
+
     private fun dashboard(
         accounts: List<Account> = emptyList(),
         plannedItems: List<PlannedItem> = emptyList(),

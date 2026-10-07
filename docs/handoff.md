@@ -1,10 +1,23 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-05. Production application baseline: `8632bcd` (`main`);
+Updated: 2026-10-07. Production application baseline: `8632bcd` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **2026-10-07 D-027 allocation-guard tests (PR #35, source only)**: Android
+    `checkMatchAllocation` now has real unit tests in `MatchAllocationTest.kt`.
+    Over-allocation error amounts use a private locale-independent
+    `R#,##0.00` formatter in `MatchAllocation.kt` only. App-wide `formatZar`
+    is unchanged from `main` (deferred to Priya's M6). `docs/safe-to-spend.md`
+    no longer includes D-028 caller requirements; split-payment text now
+    describes stored `actualCents` from `planned_item_progress`, not an
+    equal-split of `|amount|`. The guard remains a client-side read-then-write
+    check and is not atomic; a database constraint trigger on
+    `planned_item_matches` is proposed as follow-up (P0-1b) and is not in this
+    PR. Android version stays `0.6.9` (code 25). This source change has not
+    been merged or deployed.
 
 - **2026-10-05 cumulative plan matching source change**: Android manual
   matching now keeps fully matched and over-plan items selectable, so several

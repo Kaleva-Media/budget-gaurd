@@ -95,3 +95,11 @@ interface SafeToSpendSummary {
 ```
 
 Golden tests with JSON fixtures for Android parity. Cite this document path and commit SHA in Vera runs.
+
+### Split payment allocation
+
+R does not equal-split a transaction across `plannedItemIds`. Both the TypeScript domain and Android `summariseSafeToSpend` take each planned outflow's remaining as `max(0, plannedCents − actualCents)`. `item.actualCents` is `planned_item_progress.actual_cents`: the sum of that line's `planned_item_matches.amount_cents` rows. A transaction id on the match, a category, or “mark paid manually” does not change R.
+
+Allocations are stored per planned line. For one transaction their sum is at most `|tx.amountCents|`. Android `checkMatchAllocation` enforces that cap on the client before upsert. The check is a read-then-write and is **not atomic**; concurrent confirms can still over-allocate. A constraint trigger on `planned_item_matches` is the follow-up (P0-1b) and is not in this change.
+
+A pending matched to one or more lines stays in P exactly once (`abs(amountCents)` of that pending). R drops by the stored allocation amounts. C = R + P therefore does not change: a R90k pending split as R30k × 3 reduces R by R90k and adds R90k to P.
