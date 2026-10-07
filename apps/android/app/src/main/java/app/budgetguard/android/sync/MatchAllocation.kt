@@ -1,7 +1,6 @@
 package app.budgetguard.android.sync
 
-import java.text.NumberFormat
-import java.util.Locale
+import app.budgetguard.android.dashboard.formatZar
 import kotlin.math.abs
 
 /**
@@ -27,19 +26,14 @@ internal fun checkMatchAllocation(
         .filter { it.first != plannedItemId }
         .sumOf { it.second }
     val newTotal = existingTotal + newAmountCents
-    
+
     if (newTotal > maxAvailable) {
         val remaining = (maxAvailable - existingTotal).coerceAtLeast(0)
-        return "Cannot allocate ${formatZarCents(newAmountCents)} to this item. " +
-               "Transaction amount is ${formatZarCents(maxAvailable)}, " +
-               "${formatZarCents(existingTotal)} already allocated to other items, " +
-               "only ${formatZarCents(remaining)} remaining."
+        return "Cannot allocate ${formatZar(newAmountCents)} to this item. " +
+               "Transaction amount is ${formatZar(maxAvailable)}, " +
+               "${formatZar(existingTotal)} already allocated to other items, " +
+               "only ${formatZar(remaining)} remaining."
     }
-    
-    return null
-}
 
-private fun formatZarCents(cents: Long): String {
-    val formatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-ZA"))
-    return formatter.format(abs(cents) / 100.0)
+    return null
 }
