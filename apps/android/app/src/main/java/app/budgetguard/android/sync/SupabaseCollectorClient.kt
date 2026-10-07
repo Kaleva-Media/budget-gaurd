@@ -205,7 +205,7 @@ class SupabaseCollectorClient private constructor(
                 }
             }
             .decodeList<TransactionRow>()
-        val deduplicatedTransactions = (allPending + transactions).distinctBy { it.id }
+        val deduplicatedTransactions = mergeDashboardTransactions(transactions, allPending)
         val matchRows = client.from("planned_item_matches")
             .select {
                 filter {
@@ -316,7 +316,7 @@ class SupabaseCollectorClient private constructor(
                     manuallyPaid = row.id in manuallyPaidItemIds,
                 )
             },
-            transactions = transactions.map { row ->
+            transactions = deduplicatedTransactions.map { row ->
                 Transaction(
                     id = row.id,
                     accountId = row.accountId,
