@@ -1441,6 +1441,20 @@ private data class TransactionRow(
     @SerialName("needs_review") val needsReview: Boolean,
 )
 
+/**
+ * Merges paginated posted transactions with all open pending outflows for STS.
+ *
+ * The recent 100 transactions may include some pendings, so we deduplicate by ID
+ * and preserve the occurred_on descending sort for UI display.
+ */
+private fun mergeDashboardTransactions(
+    recentTransactions: List<TransactionRow>,
+    allPending: List<TransactionRow>,
+): List<TransactionRow> {
+    val merged = (allPending + recentTransactions).distinctBy { it.id }
+    return merged.sortedByDescending { it.occurredOn }
+}
+
 @Serializable
 private data class MatchRow(
     @SerialName("transaction_id") val transactionId: String,
