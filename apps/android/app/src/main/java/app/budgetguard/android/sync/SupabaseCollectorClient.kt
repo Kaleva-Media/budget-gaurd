@@ -197,6 +197,15 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
+        val allPending = client.from("transactions")
+            .select {
+                filter {
+                    eq("entity_id", entityRow.id)
+                    eq("status", "pending")
+                }
+            }
+            .decodeList<TransactionRow>()
+        val deduplicatedTransactions = mergeDashboardTransactions(transactions, allPending)
         val matchRows = client.from("planned_item_matches")
             .select {
                 filter {
@@ -307,7 +316,7 @@ class SupabaseCollectorClient private constructor(
                     manuallyPaid = row.id in manuallyPaidItemIds,
                 )
             },
-            transactions = transactions.map { row ->
+            transactions = deduplicatedTransactions.map { row ->
                 Transaction(
                     id = row.id,
                     accountId = row.accountId,
@@ -1418,7 +1427,7 @@ private data class PlannedItemRow(
 )
 
 @Serializable
-private data class TransactionRow(
+internal data class TransactionRow(
     val id: String,
     @SerialName("account_id") val accountId: String,
     @SerialName("category_id") val categoryId: String?,
