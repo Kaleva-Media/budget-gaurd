@@ -810,21 +810,16 @@ class SupabaseCollectorClient private constructor(
             }
             .decodeList<ExistingMatchRow>()
         
-        val existingTotal = existingMatches
-            .filter { it.plannedItemId != plannedItemId }
-            .sumOf { it.amountCents }
+        val existing = existingMatches.map { it.plannedItemId to it.amountCents }
+        val errorMessage = checkMatchAllocation(
+            transactionAmountCents = transaction.amountCents,
+            existing = existing,
+            plannedItemId = plannedItemId,
+            newAmountCents = amountCents,
+        )
         
-        val maxAvailable = kotlin.math.abs(transaction.amountCents)
-        val newTotal = existingTotal + amountCents
-        
-        if (newTotal > maxAvailable) {
-            val remaining = maxAvailable - existingTotal
-            error(
-                "Cannot allocate ${formatCents(amountCents)} to this item. " +
-                "Transaction amount is ${formatCents(maxAvailable)}, " +
-                "${formatCents(existingTotal)} already allocated to other items, " +
-                "only ${formatCents(remaining)} remaining."
-            )
+        if (errorMessage != null) {
+            error(errorMessage)
         }
         
         client.from("planned_item_matches").upsert(
@@ -846,9 +841,6 @@ class SupabaseCollectorClient private constructor(
         }
     }
 
-    private fun formatCents(cents: Long): String {
-        return "R${kotlin.math.abs(cents) / 100}"
-    }
 
     suspend fun removePlannedItemMatch(
         plannedItemId: String,
