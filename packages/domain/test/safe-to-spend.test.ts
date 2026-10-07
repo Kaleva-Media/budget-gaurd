@@ -604,7 +604,7 @@ describe("safe to spend (Home)", () => {
     expect(result.safeToSpendCents).toBe(410_000);
   });
 
-  test("split payment: unequal plan amounts with equal allocation", () => {
+  test("split payment uses stored actualCents", () => {
     const bigExpense: PlannedItem = {
       id: "big",
       direction: "expense",

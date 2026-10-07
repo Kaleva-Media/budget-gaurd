@@ -96,31 +96,10 @@ interface SafeToSpendSummary {
 
 Golden tests with JSON fixtures for Android parity. Cite this document path and commit SHA in Vera runs.
 
-### Caller requirements (D-028)
-
-**Pass ALL open pending outflows** for the active workspace to `summariseSafeToSpend`. Do not paginate or truncate the transaction list to ~100 records. P must include every pending outflow on STS accounts to correctly represent commitments.
-
-Android implementations must load the complete set of pending transactions for the selected entity when calculating STS, not only the paginated Activity view.
-
-Optional helper for aggregating pending outflows before STS calculation:
-
-```typescript
-function aggregatePendingOutflows(
-  transactions: Transaction[],
-  stsAccountIds: Set<string>,
-): Transaction[] {
-  return transactions.filter(
-    (tx) =>
-      tx.status === "pending" &&
-      tx.amountCents < 0 &&
-      !["transfer", "reversal"].includes(tx.kind) &&
-      stsAccountIds.has(tx.accountId),
-  );
-}
-```
-
 ### Split payment allocation
 
-When a transaction is matched to multiple planned items (split payment), the transaction amount is allocated across those items. The domain and Android implementations equal-split `|amount|` across `plannedItemIds.length` when the model provides only `plannedItemIds: string[]`. Future work may track per-line allocated amounts in `planned_item_matches.amount_cents`, enabling non-uniform splits where the sum of allocated amounts ≤ `|tx.amountCents|`.
+R does not equal-split a transaction across `plannedItemIds`. Both the TypeScript domain and Android `summariseSafeToSpend` take each planned outflow's remaining as `max(0, plannedCents − actualCents)`. `item.actualCents` is `planned_item_progress.actual_cents`: the sum of that line's `planned_item_matches.amount_cents` rows. A transaction id on the match, a category, or “mark paid manually” does not change R.
 
-**Current behaviour:** A R90k pending matched to 3 plan lines allocates R30k to each line, reducing R by R30k × 3 = R90k total. The pending is counted once in P (R90k), keeping C = R90k stable before and after the match (Neo dedup rule).
+Allocations are stored per planned line. For one transaction their sum is at most `|tx.amountCents|`. Android `checkMatchAllocation` enforces that cap on the client before upsert. The check is a read-then-write and is **not atomic**; concurrent confirms can still over-allocate. A constraint trigger on `planned_item_matches` is the follow-up (P0-1b) and is not in this change.
+
+A pending matched to one or more lines stays in P exactly once (`abs(amountCents)` of that pending). R drops by the stored allocation amounts. C = R + P therefore does not change: a R90k pending split as R30k × 3 reduces R by R90k and adds R90k to P.

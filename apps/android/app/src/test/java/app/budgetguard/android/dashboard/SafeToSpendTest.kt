@@ -675,7 +675,7 @@ class SafeToSpendTest {
     }
 
     @Test
-    fun splitPaymentWithEqualAllocationWhenAmountsNotProvided() {
+    fun splitPaymentUsesStoredActualCents() {
         val big = PlannedItem(
             id = "big",
             direction = "expense",
