@@ -789,6 +789,44 @@ class SupabaseCollectorClient private constructor(
     ) {
         require(amountCents > 0) { "A transaction match amount must be positive." }
         val userId = authenticatedUserId()
+        
+        // D-027 enforcement: prevent over-allocation across all items for this transaction
+        val transaction = client.from("transactions")
+            .select {
+                filter {
+                    eq("id", transactionId)
+                    eq("user_id", userId)
+                }
+            }
+            .decodeSingleOrNull<TransactionAmountRow>()
+            ?: error("Transaction not found or not owned by user.")
+        
+        val existingMatches = client.from("planned_item_matches")
+            .select {
+                filter {
+                    eq("transaction_id", transactionId)
+                    eq("user_id", userId)
+                }
+            }
+            .decodeList<ExistingMatchRow>()
+        
+        val existingTotal = existingMatches
+            .filter { it.plannedItemId != plannedItemId }
+            .sumOf { it.amountCents }
+        
+        val maxAvailable = kotlin.math.abs(transaction.amountCents)
+        val newTotal = existingTotal + amountCents
+        
+        if (newTotal > maxAvailable) {
+            val remaining = maxAvailable - existingTotal
+            error(
+                "Cannot allocate ${formatCents(amountCents)} to this item. " +
+                "Transaction amount is ${formatCents(maxAvailable)}, " +
+                "${formatCents(existingTotal)} already allocated to other items, " +
+                "only ${formatCents(remaining)} remaining."
+            )
+        }
+        
         client.from("planned_item_matches").upsert(
             NewPlannedItemMatch(
                 userId = userId,
@@ -806,6 +844,10 @@ class SupabaseCollectorClient private constructor(
                 eq("user_id", userId)
             }
         }
+    }
+
+    private fun formatCents(cents: Long): String {
+        return "R${kotlin.math.abs(cents) / 100}"
     }
 
     suspend fun removePlannedItemMatch(
@@ -1455,6 +1497,17 @@ private data class NewPlannedItemMatch(
     @SerialName("user_id") val userId: String,
     @SerialName("planned_item_id") val plannedItemId: String,
     @SerialName("transaction_id") val transactionId: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
+private data class TransactionAmountRow(
+    @SerialName("amount_cents") val amountCents: Long,
+)
+
+@Serializable
+private data class ExistingMatchRow(
+    @SerialName("planned_item_id") val plannedItemId: String,
     @SerialName("amount_cents") val amountCents: Long,
 )
 
