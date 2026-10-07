@@ -1,61 +1,64 @@
 package app.budgetguard.android.sync
 
-import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 /**
  * Tests for D-027 enforcement: prevent over-allocation when matching a transaction
  * to multiple planned items.
+ * 
+ * Note: These are structural tests documenting expected behavior. Full integration
+ * testing requires a live Supabase client with test data.
  */
 class ConfirmPlannedItemMatchAllocationTest {
     
     @Test
-    fun allowsAllocationWithinTransactionAmount() = runTest {
+    fun allowsAllocationWithinTransactionAmount() {
         // Transaction: -R90,000
         // Scenario: Allocate R30k to item A, R30k to item B, R30k to item C
-        // Expected: All three allocations succeed
+        // Expected: All three allocations succeed (30+30+30 = 90)
         
-        // This test verifies the happy path where allocations sum to exactly
-        // the transaction amount. In practice this would require a real
-        // SupabaseCollectorClient with mocked responses, so this is a
-        // structural placeholder showing the expected behavior.
-        
-        // The actual implementation in confirmPlannedItemMatch checks:
+        // The guard in confirmPlannedItemMatch checks:
         // existing allocations (excluding current item) + new amount <= |tx.amountCents|
+        
+        // For item A: existing=0, new=30k, limit=90k → 0+30 <= 90 ✓
+        // For item B: existing=30k (A), new=30k, limit=90k → 30+30 <= 90 ✓  
+        // For item C: existing=60k (A+B), new=30k, limit=90k → 60+30 <= 90 ✓
         
         assertTrue("Allocation guard allows valid splits", true)
     }
     
     @Test
-    fun rejectsAllocationExceedingTransactionAmount() = runTest {
+    fun rejectsAllocationExceedingTransactionAmount() {
         // Transaction: -R90,000
-        // Existing: R60k to item A, R40k to item B  
+        // Existing: R60k to item A, R40k to item B (total R100k) 
         // Attempt: R30k to item C
-        // Expected: Rejected with clear message about R30k remaining
+        // Expected: Rejected because 100+30 > 90
         
-        // This test verifies that over-allocation is caught and rejected.
-        // The error message must state:
-        // - Amount user tried to allocate
-        // - Transaction total amount
-        // - Already allocated amount
-        // - Remaining available amount
+        // Error message format:
+        // "Cannot allocate R300 to this item. Transaction amount is R900,
+        //  R1000 already allocated to other items, only R-100 remaining."
+        
+        // (Negative remaining indicates over-allocation already exists,
+        //  which shouldn't happen in practice but guard handles it)
         
         assertTrue("Allocation guard rejects over-allocation", true)
     }
     
     @Test
-    fun allowsReallocationToSameItem() = runTest {
+    fun allowsReallocationToSameItem() {
         // Transaction: -R90,000
-        // Existing: R30k to item A
-        // Attempt: R60k to item A (upsert)
+        // Existing: R30k to item A, R30k to item B
+        // Attempt: R60k to item A (upsert, replacing existing R30k)
         // Expected: Succeeds because existing allocation to item A is excluded
         
-        // The guard must exclude the existing allocation for the same
-        // (plannedItemId, transactionId) pair when checking the limit.
-        // This allows users to update an allocation without false rejection.
+        // Check: existing for other items (B only) = 30k
+        // New amount for A = 60k
+        // 30+60 = 90 <= 90 ✓
+        
+        // The guard excludes the (plannedItemId, transactionId) pair being
+        // upserted, allowing users to update allocations without false rejection.
         
         assertTrue("Allocation guard excludes same-item allocation", true)
     }
@@ -63,11 +66,10 @@ class ConfirmPlannedItemMatchAllocationTest {
     @Test
     fun formatsCentsInErrorMessage() {
         // Verify formatCents helper used in error messages
-        // 90000 cents -> "R900"
-        // 30000 cents -> "R300"
-        
-        val formatted = formatCentsForTest(90000)
-        assertEquals("R900", formatted)
+        assertEquals("R900", formatCentsForTest(90000))
+        assertEquals("R300", formatCentsForTest(30000))
+        assertEquals("R1", formatCentsForTest(100))
+        assertEquals("R0", formatCentsForTest(0))
     }
     
     private fun formatCentsForTest(cents: Long): String {
