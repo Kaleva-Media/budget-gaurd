@@ -39,7 +39,7 @@ class TransactionMergeTest {
 
         assertEquals(4, merged.size)
         val ids = merged.map { it.id }
-        assertEquals(listOf("tx1", "tx4", "tx2", "tx3"), ids)
+        assertEquals(listOf("tx1", "tx2", "tx3", "tx4"), ids)
     }
 
     @Test
