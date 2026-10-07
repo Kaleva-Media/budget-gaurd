@@ -8,12 +8,13 @@ This document records repository state and historical observations, not a fresh 
 
 - **2026-10-07 D-027 allocation-guard tests (PR #35, source only)**: Android
     `checkMatchAllocation` now has real unit tests in `MatchAllocationTest.kt`.
-    Error amounts reuse the shared `formatZar` formatter, which is pinned to
-    `R#,##0.00` so assertions do not depend on JDK `en-ZA` locale data. The
-    guard remains a client-side read-then-write check and is not atomic; a
-    database constraint trigger on `planned_item_matches` is proposed as
-    follow-up and is not in this PR. Android version stays `0.6.9` (code 25).
-    This source change has not been merged or deployed.
+    Over-allocation error amounts use a private locale-independent
+    `R#,##0.00` formatter in `MatchAllocation.kt` only. App-wide `formatZar`
+    is unchanged from `main` (deferred to Priya's M6). The guard remains a
+    client-side read-then-write check and is not atomic; a database constraint
+    trigger on `planned_item_matches` is proposed as follow-up and is not in
+    this PR. Android version stays `0.6.9` (code 25). This source change has
+    not been merged or deployed.
 
 - **2026-10-05 cumulative plan matching source change**: Android manual
   matching now keeps fully matched and over-plan items selectable, so several

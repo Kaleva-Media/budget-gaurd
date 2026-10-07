@@ -1,8 +1,6 @@
 package app.budgetguard.android.dashboard
 
-import java.math.BigDecimal
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
+import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -431,26 +429,14 @@ fun MobileDashboard.budgetSummary(today: LocalDate = LocalDate.now()): BudgetSum
 }
 
 fun formatZar(cents: Long, showSign: Boolean = false): String {
-    val formatted = formatZarMagnitude(kotlin.math.abs(cents))
+    val formatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-ZA"))
+    val formatted = formatter.format(kotlin.math.abs(cents) / 100.0)
     if (!showSign) return if (cents < 0) "−$formatted" else formatted
     return when {
         cents > 0 -> "+$formatted"
         cents < 0 -> "−$formatted"
         else -> formatted
     }
-}
-
-/**
- * Deterministic ZAR amount with cents. Locale NumberFormat (en-ZA) varies by JDK
- * data ("R 1 000,50" vs "R1,000.50"), which makes unit assertions flake.
- */
-private fun formatZarMagnitude(absCents: Long): String {
-    val symbols = DecimalFormatSymbols(Locale.ENGLISH).apply {
-        groupingSeparator = ','
-        decimalSeparator = '.'
-    }
-    val formatter = DecimalFormat("#,##0.00", symbols)
-    return "R" + formatter.format(BigDecimal.valueOf(absCents, 2))
 }
 
 fun formatTransactionDate(date: String): String = runCatching {

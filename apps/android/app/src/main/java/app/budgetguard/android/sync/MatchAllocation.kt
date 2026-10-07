@@ -1,6 +1,8 @@
 package app.budgetguard.android.sync
 
-import app.budgetguard.android.dashboard.formatZar
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -29,11 +31,24 @@ internal fun checkMatchAllocation(
 
     if (newTotal > maxAvailable) {
         val remaining = (maxAvailable - existingTotal).coerceAtLeast(0)
-        return "Cannot allocate ${formatZar(newAmountCents)} to this item. " +
-               "Transaction amount is ${formatZar(maxAvailable)}, " +
-               "${formatZar(existingTotal)} already allocated to other items, " +
-               "only ${formatZar(remaining)} remaining."
+        return "Cannot allocate ${formatZarCents(newAmountCents)} to this item. " +
+               "Transaction amount is ${formatZarCents(maxAvailable)}, " +
+               "${formatZarCents(existingTotal)} already allocated to other items, " +
+               "only ${formatZarCents(remaining)} remaining."
     }
 
     return null
+}
+
+/**
+ * Locale-independent ZAR for over-allocation errors only.
+ * App-wide [app.budgetguard.android.dashboard.formatZar] is unchanged (M6).
+ */
+private fun formatZarCents(cents: Long): String {
+    val symbols = DecimalFormatSymbols(Locale.ROOT).apply {
+        groupingSeparator = ','
+        decimalSeparator = '.'
+    }
+    val formatter = DecimalFormat("'R'#,##0.00", symbols)
+    return formatter.format(abs(cents) / 100.0)
 }
