@@ -1460,7 +1460,7 @@ private data class PlannedItemRow(
 )
 
 @Serializable
-private data class TransactionRow(
+internal data class TransactionRow(
     val id: String,
     @SerialName("account_id") val accountId: String,
     @SerialName("category_id") val categoryId: String?,
