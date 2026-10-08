@@ -639,7 +639,8 @@ class SafeToSpendTest {
             categories = emptyList(),
             budgets = emptyList(),
             plannedItems = listOf(rent),
-            transactions = listOf(oldPending),
+            transactions = emptyList(),
+            stsPendings = listOf(oldPending),
             invoiceInbox = null,
             invoices = emptyList(),
         ).summariseSafeToSpend()
@@ -726,6 +727,7 @@ class SafeToSpendTest {
             budgets = emptyList(),
             plannedItems = listOf(matchedRent),
             transactions = listOf(matchedPending),
+            stsPendings = listOf(matchedPending),
             invoiceInbox = null,
             invoices = emptyList(),
         ).summariseSafeToSpend()
@@ -741,6 +743,7 @@ class SafeToSpendTest {
         accounts: List<Account> = emptyList(),
         plannedItems: List<PlannedItem> = emptyList(),
         transactions: List<Transaction> = emptyList(),
+        stsPendings: List<Transaction> = transactions.filter { it.status == "pending" },
     ) = MobileDashboard(
         month = "September – October 2026",
         profileDisplayName = "Edward",
@@ -753,6 +756,7 @@ class SafeToSpendTest {
         budgets = emptyList(),
         plannedItems = plannedItems,
         transactions = transactions,
+        stsPendings = stsPendings,
         invoiceInbox = null,
         invoices = emptyList(),
     )

@@ -1,7 +1,5 @@
 package app.budgetguard.android.sync
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -73,18 +71,3 @@ class TransactionMergeTest {
         needsReview = false,
     )
 }
-
-@Serializable
-internal data class TransactionRow(
-    val id: String,
-    @SerialName("account_id") val accountId: String,
-    @SerialName("category_id") val categoryId: String?,
-    @SerialName("occurred_on") val occurredOn: String,
-    @SerialName("occurred_at") val occurredAt: String?,
-    @SerialName("amount_cents") val amountCents: Long,
-    val status: String,
-    val kind: String,
-    val merchant: String?,
-    val description: String?,
-    @SerialName("needs_review") val needsReview: Boolean,
-)

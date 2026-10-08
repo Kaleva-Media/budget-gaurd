@@ -19,6 +19,8 @@ data class MobileDashboard(
     val budgets: List<Budget>,
     val plannedItems: List<PlannedItem>,
     val transactions: List<Transaction>,
+    val stsPendings: List<Transaction> = emptyList(),
+    val stsPendingsTruncated: Boolean = false,
     val invoiceInbox: InvoiceInbox?,
     val invoices: List<Invoice>,
     val debts: List<Debt> = emptyList(),
@@ -471,7 +473,7 @@ fun MobileDashboard.summariseSafeToSpend(): SafeToSpendSummary {
         .map { it.id }
         .toSet()
 
-    val pCents = transactions
+    val pCents = stsPendings
         .filter { tx ->
             tx.status == "pending" &&
             tx.amountCents < 0 &&
