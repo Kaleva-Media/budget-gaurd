@@ -5,7 +5,8 @@ migrations, deployment code, permissions or production configuration.
 
 ## A normal change
 
-1. Start from current `main` on a `codex/<task>` branch. Preserve unrelated work.
+1. Start from current `main` on a task branch (e.g. `cursor/<task>` or
+   `codex/<task>`). Preserve unrelated work.
    The `dev` branch is retired and kept; it is no longer used for PRs or merges.
    Do not target, branch from, or merge into `dev`.
 2. Implement one scoped change. Add regression tests, including denial cases for
@@ -78,9 +79,10 @@ This narrow scan is a backstop, not a complete secret-detection system.
 
 ## Recovery
 
-Use **Roll back web platform** on `main`, with `previous` or the full SHA of an
-already-healthy retained release. The `production-rollback` environment requires
-owner approval and shares the deployment lock/concurrency group. Retained web
+Edward uses **Roll back web platform** on `main`, with `previous` or the
+full SHA of an already-healthy retained release. The `production-rollback`
+environment requires owner approval and shares the deployment lock/concurrency
+group. Retained web
 and invoice-function code are restored and checked; compatible additive schema
 and new user writes remain intact.
 
