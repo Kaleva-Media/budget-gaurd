@@ -86,6 +86,7 @@ class LocalBudgetInvestigatorTest {
     private fun dashboard(
         plannedItems: List<PlannedItem> = emptyList(),
         transactions: List<Transaction> = emptyList(),
+        stsPendings: List<Transaction> = transactions.filter { it.status == "pending" },
     ): MobileDashboard {
         val entity = Entity("personal", "Personal", "personal", true, 0, 28)
         val period = BudgetPeriod("period", "2026-09-01", "active", 0)
@@ -101,6 +102,7 @@ class LocalBudgetInvestigatorTest {
             budgets = emptyList(),
             plannedItems = plannedItems,
             transactions = transactions,
+            stsPendings = stsPendings,
             invoiceInbox = null,
             invoices = emptyList(),
         )

@@ -2,6 +2,7 @@ package app.budgetguard.android.sync
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.core.content.edit
 import app.budgetguard.android.BuildConfig
 import app.budgetguard.android.data.LocalTransactionEntity
@@ -19,7 +20,6 @@ import app.budgetguard.android.dashboard.Invoice
 import app.budgetguard.android.dashboard.InvoiceInbox
 import app.budgetguard.android.dashboard.MobileDashboard
 import app.budgetguard.android.dashboard.PlannedItem
-import app.budgetguard.android.dashboard.Transaction
 import app.budgetguard.android.dashboard.budgetCycleBounds
 import app.budgetguard.android.dashboard.budgetPeriodLabelFor
 import app.budgetguard.android.dashboard.categoryScopeForEntityKind
@@ -180,11 +180,19 @@ class SupabaseCollectorClient private constructor(
                 order("sort_order", Order.ASCENDING)
             }
             .decodeList<PlannedItemRow>()
-        val paymentConfirmations = client.from("planned_item_payment_confirmations")
-            .select {
-                filter { eq("user_id", userId) }
-            }
-            .decodeList<PaymentConfirmationRow>()
+        val plannedItemIds = plannedItems.map(PlannedItemRow::id)
+        val paymentConfirmations = if (plannedItemIds.isEmpty()) {
+            emptyList()
+        } else {
+            client.from("planned_item_payment_confirmations")
+                .select {
+                    filter {
+                        eq("user_id", userId)
+                        isIn("planned_item_id", plannedItemIds)
+                    }
+                }
+                .decodeList<PaymentConfirmationRow>()
+        }
         val manuallyPaidItemIds = paymentConfirmations.mapTo(mutableSetOf()) { it.plannedItemId }
         val transactions = client.from("transactions")
             .select {
@@ -197,23 +205,49 @@ class SupabaseCollectorClient private constructor(
                 limit(100)
             }
             .decodeList<TransactionRow>()
-        val allPending = client.from("transactions")
-            .select {
-                filter {
-                    eq("entity_id", entityRow.id)
-                    eq("status", "pending")
-                }
+        val stsAccountIds = accounts
+            .filter { it.includeInSafeToSpend }
+            .map(AccountRow::id)
+        val allPendingResult = if (stsAccountIds.isEmpty()) {
+            PagedResult<TransactionRow>(emptyList(), truncated = false)
+        } else {
+            fetchAllPages(DASHBOARD_FETCH_PAGE_SIZE, DASHBOARD_FETCH_MAX_PAGES) { from, to ->
+                client.from("transactions")
+                    .select {
+                        filter {
+                            eq("entity_id", entityRow.id)
+                            eq("status", "pending")
+                            lt("amount_cents", 0)
+                            isIn("account_id", stsAccountIds)
+                        }
+                        order("occurred_on", Order.DESCENDING)
+                        order("id", Order.DESCENDING)
+                        range(from, to)
+                    }
+                    .decodeList<TransactionRow>()
             }
-            .decodeList<TransactionRow>()
-        val deduplicatedTransactions = mergeDashboardTransactions(transactions, allPending)
-        val matchRows = client.from("planned_item_matches")
-            .select {
-                filter {
-                    eq("user_id", userId)
+        }
+        val matchResult = fetchAllPages(DASHBOARD_FETCH_PAGE_SIZE, DASHBOARD_FETCH_MAX_PAGES) { from, to ->
+            client.from("planned_item_matches")
+                .select {
+                    filter { eq("user_id", userId) }
+                    order("id", Order.DESCENDING)
+                    range(from, to)
                 }
-            }
-            .decodeList<MatchRow>()
-        val matchesByTransaction = matchRows.groupBy(MatchRow::transactionId)
+                .decodeList<MatchRow>()
+        }
+        if (allPendingResult.truncated) {
+            Log.w(
+                TAG,
+                "Pending STS query hit the $DASHBOARD_FETCH_MAX_PAGES-page cap; Safe to spend may omit older pendings.",
+            )
+        }
+        if (matchResult.truncated) {
+            Log.w(
+                TAG,
+                "planned_item_matches query hit the $DASHBOARD_FETCH_MAX_PAGES-page cap; some match links may be missing.",
+            )
+        }
         val invoiceInbox = client.from("invoice_inboxes")
             .select {
                 filter { eq("is_active", true) }
@@ -267,7 +301,7 @@ class SupabaseCollectorClient private constructor(
             .decodeList<DebtSpendingRow>()
         val balancesByCheckIn = debtCheckInBalances.groupBy(DebtCheckInBalanceRow::checkInId)
 
-        return MobileDashboard(
+        return assembleDashboard(
             month = formatPeriodRange(periodStart, entityRow.budgetCycleDay ?: 1),
             profileDisplayName = profile.displayName,
             entity = entityRow.toModel(),
@@ -316,23 +350,11 @@ class SupabaseCollectorClient private constructor(
                     manuallyPaid = row.id in manuallyPaidItemIds,
                 )
             },
-            transactions = deduplicatedTransactions.map { row ->
-                Transaction(
-                    id = row.id,
-                    accountId = row.accountId,
-                    categoryId = row.categoryId,
-                    occurredOn = row.occurredOn,
-                    occurredAt = row.occurredAt,
-                    amountCents = row.amountCents,
-                    status = row.status,
-                    kind = row.kind,
-                    merchant = row.merchant ?: "Unknown transaction",
-                    description = row.description.orEmpty(),
-                    needsReview = row.needsReview,
-                    plannedItemIds = matchesByTransaction[row.id].orEmpty().map(MatchRow::plannedItemId),
-                    plannedItemMatchAmounts = matchesByTransaction[row.id].orEmpty()
-                        .associate { match -> match.plannedItemId to match.amountCents },
-                )
+            cyclePage = transactions,
+            allPendingRows = allPendingResult.rows,
+            allPendingTruncated = allPendingResult.truncated,
+            matches = matchResult.rows.map { row ->
+                DashboardMatch(row.transactionId, row.plannedItemId, row.amountCents)
             },
             invoiceInbox = invoiceInbox?.let { InvoiceInbox(it.address) },
             invoices = invoices.map(InvoiceRow::toModel),
@@ -1190,6 +1212,8 @@ class SupabaseCollectorClient private constructor(
     }
 
     companion object {
+        private const val TAG = "BudgetGuardCollector"
+
         fun create(context: Context): SupabaseCollectorClient? {
             if (BuildConfig.SUPABASE_URL.isBlank() || BuildConfig.SUPABASE_PUBLISHABLE_KEY.isBlank()) return null
             val client = createSupabaseClient(
