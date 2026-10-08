@@ -3,7 +3,7 @@ package app.budgetguard.android.sync
 internal const val DASHBOARD_FETCH_PAGE_SIZE = 500
 internal const val DASHBOARD_FETCH_MAX_PAGES = 20
 
-data class PagedResult<T>(
+internal data class PagedResult<T>(
     val rows: List<T>,
     val truncated: Boolean,
 )
@@ -12,9 +12,11 @@ data class PagedResult<T>(
  * Walks a range-based list endpoint until a short page or [maxPages].
  * [fetch] receives inclusive `from`/`to` indexes (`range(from, from+pageSize-1)`).
  * Hitting [maxPages] with a full final page sets [PagedResult.truncated] rather
- * than silently dropping the remainder.
+ * than silently dropping the remainder. Exactly [maxPages] full pages
+ * (`maxPages * pageSize` rows, e.g. 20×500) therefore reports
+ * `truncated=true` even if no further rows exist.
  */
-suspend fun <T> fetchAllPages(
+internal suspend fun <T> fetchAllPages(
     pageSize: Int,
     maxPages: Int,
     fetch: suspend (from: Long, to: Long) -> List<T>,

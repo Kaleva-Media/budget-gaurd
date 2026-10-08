@@ -69,7 +69,7 @@ internal fun assembleDashboard(
     fun TransactionRow.withMatches(): Transaction =
         toDashboardTransaction(matchesByTransaction[id].orEmpty())
 
-    val stsPendings = allPendingRows
+    val stsPendings = (cyclePage.filter { it.status == "pending" } + allPendingRows)
         .distinctBy(TransactionRow::id)
         .sortedWith(
             compareByDescending<TransactionRow> { it.occurredOn }

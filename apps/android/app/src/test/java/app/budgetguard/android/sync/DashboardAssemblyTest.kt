@@ -117,6 +117,32 @@ class DashboardAssemblyTest {
     }
 
     @Test
+    fun truncatedAllPendingStillCountsCyclePagePendingOnce() {
+        val cyclePending = pendingRow(
+            id = "cycle-pending",
+            occurredOn = "2026-09-20",
+            amountCents = -25_000,
+        )
+        val olderFetched = pendingRow(
+            id = "fetched-pending",
+            occurredOn = "2026-08-01",
+            amountCents = -10_000,
+        )
+        val dashboard = dashboardFrom(
+            cyclePage = listOf(cyclePending),
+            allPendingRows = listOf(olderFetched),
+            allPendingTruncated = true,
+            accounts = listOf(stsAccount),
+        )
+
+        assertTrue(dashboard.stsPendingsTruncated)
+        assertEquals(listOf("cycle-pending"), dashboard.transactions.map { it.id })
+        assertEquals(1, dashboard.stsPendings.count { it.id == "cycle-pending" })
+        assertEquals(setOf("cycle-pending", "fetched-pending"), dashboard.stsPendings.map { it.id }.toSet())
+        assertEquals(35_000L, dashboard.summariseSafeToSpend().pCents)
+    }
+
+    @Test
     fun olderPendingCountsInPButNotCycleSurfaces() {
         val cyclePosted = pendingRow(
             id = "cycle-posted",

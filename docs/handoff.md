@@ -11,8 +11,9 @@ This document records repository state and historical observations, not a fresh 
     select for STS pendings. `fetchAllPages` walks PostgREST ranges of 500
     (hard stop 20 pages, truncated flagged rather than dropped). Cycle
     `transactions` stay on the existing limit-100 page; STS P reads
-    `stsPendings` assembled from the paginated pending rows. Formula,
-    cycle-window, and migrations are unchanged. Not merged or deployed.
+    `stsPendings` assembled from cycle-page pendings plus the paginated
+    pending rows. Formula, cycle-window, and migrations are unchanged
+    relative to #36 (`5c5349e`). Not merged or deployed.
     The #36 stack stays unmergeable until D-032 is decided.
 
 - **2026-10-05 cumulative plan matching source change**: Android manual

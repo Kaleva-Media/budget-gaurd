@@ -2,6 +2,7 @@ package app.budgetguard.android.sync
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.core.content.edit
 import app.budgetguard.android.BuildConfig
 import app.budgetguard.android.data.LocalTransactionEntity
@@ -185,7 +186,10 @@ class SupabaseCollectorClient private constructor(
         } else {
             client.from("planned_item_payment_confirmations")
                 .select {
-                    filter { isIn("planned_item_id", plannedItemIds) }
+                    filter {
+                        eq("user_id", userId)
+                        isIn("planned_item_id", plannedItemIds)
+                    }
                 }
                 .decodeList<PaymentConfirmationRow>()
         }
@@ -231,6 +235,18 @@ class SupabaseCollectorClient private constructor(
                     range(from, to)
                 }
                 .decodeList<MatchRow>()
+        }
+        if (allPendingResult.truncated) {
+            Log.w(
+                TAG,
+                "Pending STS query hit the $DASHBOARD_FETCH_MAX_PAGES-page cap; Safe to spend may omit older pendings.",
+            )
+        }
+        if (matchResult.truncated) {
+            Log.w(
+                TAG,
+                "planned_item_matches query hit the $DASHBOARD_FETCH_MAX_PAGES-page cap; some match links may be missing.",
+            )
         }
         val invoiceInbox = client.from("invoice_inboxes")
             .select {
@@ -1196,6 +1212,8 @@ class SupabaseCollectorClient private constructor(
     }
 
     companion object {
+        private const val TAG = "BudgetGuardCollector"
+
         fun create(context: Context): SupabaseCollectorClient? {
             if (BuildConfig.SUPABASE_URL.isBlank() || BuildConfig.SUPABASE_PUBLISHABLE_KEY.isBlank()) return null
             val client = createSupabaseClient(
