@@ -6,15 +6,16 @@ migrations, deployment code, permissions or production configuration.
 ## A normal change
 
 1. Start from current `main` on a `codex/<task>` branch. Preserve unrelated work.
+   The `dev` branch is retired and kept; it is no longer used for PRs or merges.
+   Do not target, branch from, or merge into `dev`.
 2. Implement one scoped change. Add regression tests, including denial cases for
    authentication, ownership, money calculations and document ingestion.
 3. Run relevant checks locally; state what could not run. Never skip a failing
    suite, weaken a test or disable a guard just to merge.
-4. Open a PR with test evidence, risk, deployment impact and rollback instructions.
+4. Open a PR targeting `main` with test evidence, risk, deployment impact and rollback instructions.
 5. Wait for `all-tests` on the **latest** commit, an up-to-date branch and
-   resolved conversations. Independent and code-owner review remain encouraged,
-   especially for migrations and security changes, but are not merge gates.
-6. Squash merge. No direct pushes, force pushes, self-approval, administrator
+   resolved conversations. Independent review is required. Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges.
+6. Only Edward squash-merges. Agents never merge, deploy, or promote. No direct pushes, force pushes, self-approval, administrator
    bypasses or temporary removal of protections. Agents must not change repository
    governance without an explicit owner request for that task.
 7. A merge triggers CI again on the resulting `main` SHA. Deployment uses that
