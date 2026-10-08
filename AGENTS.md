@@ -10,7 +10,7 @@
 5. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
 Repository: `https://github.com/Kaleva-Media/budget-gaurd` (spelling is intentional).
-Primary branch: `main`. The `dev` branch is retired and kept; it is no longer used for PRs or merges. Do not target, branch from, or merge into `dev`. Work on a `codex/<task>` branch from `main`. Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges. Test locally before opening a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit and independent review. Agents never merge, deploy, or promote. Only Edward merges.
+Primary branch: `main`. The `dev` branch is retired and kept; it is no longer used for PRs or merges. Do not target, branch from, or merge into `dev`. Work on a `codex/<task>` branch from `main`. Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges. Test locally before opening a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit. Vera verifies against the acceptance criteria before Edward merges. This is a process gate and is not enforced by branch protection. Agents never merge, deploy, or promote. Only Edward merges.
 
 ## Product intent
 

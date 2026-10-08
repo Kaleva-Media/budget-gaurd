@@ -14,9 +14,14 @@ migrations, deployment code, permissions or production configuration.
    suite, weaken a test or disable a guard just to merge.
 4. Open a PR targeting `main` with test evidence, risk, deployment impact and rollback instructions.
 5. Wait for `all-tests` on the **latest** commit, an up-to-date branch and
-   resolved conversations. Independent review is required. Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges.
-6. Only Edward squash-merges. Agents never merge, deploy, or promote. No direct pushes, force pushes, self-approval, administrator
-   bypasses or temporary removal of protections. Agents must not change repository
+   resolved conversations. Vera verifies against the acceptance criteria before
+   Edward merges. This is a process gate and is not enforced by branch
+   protection. Code-owner review remains encouraged, especially for migrations
+   and security changes. Workflow: branch -> PR to `main` -> Vera verifies ->
+   Edward merges.
+6. Only Edward squash-merges. Agents never merge, deploy, or promote. No
+   direct pushes, force pushes, self-approval, administrator bypasses or
+   temporary removal of protections. Agents must not change repository
    governance without an explicit owner request for that task.
 7. A merge triggers CI again on the resulting `main` SHA. Deployment uses that
    exact successful run's artifact, never a PR build or a local developer build.
