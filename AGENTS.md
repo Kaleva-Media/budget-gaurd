@@ -10,7 +10,7 @@
 5. Run `git status --short --branch`; preserve unrelated user changes. Inspect current code and live configuration rather than assuming historical notes remain current.
 
 Repository: `https://github.com/Kaleva-Media/budget-gaurd` (spelling is intentional).
-Primary branch: `main`. Work on a `codex/<task>` branch and submit a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit; independent review is encouraged but is not a merge requirement.
+Primary branch: `main`. The `dev` branch is retired and kept; it is no longer used for PRs or merges. Do not target, branch from, or merge into `dev`. Work on a task branch from `main` (e.g. `cursor/<task>` or `codex/<task>`). Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges. Test locally before opening a PR. Never push directly to protected `main`, bypass its checks or approve your own PR. Require `all-tests` on the latest commit. Vera verifies against the acceptance criteria before Edward merges. This is a process gate and is not enforced by branch protection. Agents never merge, deploy, or promote. Only Edward merges.
 
 ## Product intent
 
@@ -83,7 +83,7 @@ Run checks relevant to the change and report exactly which ran, passed, failed, 
 - Run `python3 -m unittest discover -s deploy/tests -v` and `python3 deploy/policy.py --base origin/main` for deployment/schema changes. Never edit the approved migration baseline or disable a safety check to pass CI.
 - Web/function releases go through the exact-SHA automated workflow and root-owned forced-command controller. A successful, restore-tested backup is mandatory before migrations. Compatible additive schema is retained during code rollback; destructive database recovery requires a separate authorized maintenance plan.
 - Ordinary agents need non-admin GitHub write access and must not receive general production SSH, Docker access or database/service-role credentials. Stop if the task requires a security exception; do not borrow owner credentials or misrepresent the review status.
-- Production deployment, email routing/DNS changes, key rotation, data mutation, and rollback require user authorization for the current task. Historical authorization in a handoff is not standing permission.
+- Agents never deploy or dispatch rollback. Production deploy follows Edward's merge to `main`. Rollback, DNS, key rotation and production data changes are Edward only. Historical authorization in a handoff is not standing permission.
 - Never re-run the production provisioning script over the existing stack, expose loopback database/API ports, enable apex Email Routing MX, or force-push without explicit scope and approval.
 - Keep `docs/handoff.md` updated when status changes. Distinguish source changes, deployment changes, and end-to-end verification; record versions and outcomes without secret values.
 - If the user explicitly invokes `/graphify`, load the installed graphify skill before acting. Graphify is optional tooling, not a prerequisite for building or maintaining this repo.

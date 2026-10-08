@@ -5,17 +5,24 @@ migrations, deployment code, permissions or production configuration.
 
 ## A normal change
 
-1. Start from current `main` on a `codex/<task>` branch. Preserve unrelated work.
+1. Start from current `main` on a task branch (e.g. `cursor/<task>` or
+   `codex/<task>`). Preserve unrelated work.
+   The `dev` branch is retired and kept; it is no longer used for PRs or merges.
+   Do not target, branch from, or merge into `dev`.
 2. Implement one scoped change. Add regression tests, including denial cases for
    authentication, ownership, money calculations and document ingestion.
 3. Run relevant checks locally; state what could not run. Never skip a failing
    suite, weaken a test or disable a guard just to merge.
-4. Open a PR with test evidence, risk, deployment impact and rollback instructions.
+4. Open a PR targeting `main` with test evidence, risk, deployment impact and rollback instructions.
 5. Wait for `all-tests` on the **latest** commit, an up-to-date branch and
-   resolved conversations. Independent and code-owner review remain encouraged,
-   especially for migrations and security changes, but are not merge gates.
-6. Squash merge. No direct pushes, force pushes, self-approval, administrator
-   bypasses or temporary removal of protections. Agents must not change repository
+   resolved conversations. Vera verifies against the acceptance criteria before
+   Edward merges. This is a process gate and is not enforced by branch
+   protection. Code-owner review remains encouraged, especially for migrations
+   and security changes. Workflow: branch -> PR to `main` -> Vera verifies ->
+   Edward merges.
+6. Only Edward squash-merges. Agents never merge, deploy, or promote. No
+   direct pushes, force pushes, self-approval, administrator bypasses or
+   temporary removal of protections. Agents must not change repository
    governance without an explicit owner request for that task.
 7. A merge triggers CI again on the resulting `main` SHA. Deployment uses that
    exact successful run's artifact, never a PR build or a local developer build.
@@ -72,9 +79,10 @@ This narrow scan is a backstop, not a complete secret-detection system.
 
 ## Recovery
 
-Use **Roll back web platform** on `main`, with `previous` or the full SHA of an
-already-healthy retained release. The `production-rollback` environment requires
-owner approval and shares the deployment lock/concurrency group. Retained web
+Edward uses **Roll back web platform** on `main`, with `previous` or the
+full SHA of an already-healthy retained release. The `production-rollback`
+environment requires owner approval and shares the deployment lock/concurrency
+group. Retained web
 and invoice-function code are restored and checked; compatible additive schema
 and new user writes remain intact.
 

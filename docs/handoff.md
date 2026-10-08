@@ -1,10 +1,17 @@
 # BudgetGuard handoff
 
-Updated: 2026-10-05. Production application baseline: `8632bcd` (`main`);
+Updated: 2026-10-08. Production application baseline: `8632bcd` (`main`);
 later documentation-only revisions do not change application behaviour.
 This document records repository state and historical observations, not a fresh production audit.
 
 ## Recent changes
+
+- **D-030 (2026-10-08)**: The `dev` branch is retired and kept; it is no longer
+  used for PRs or merges. Do not target, branch from, or merge into `dev`.
+  Workflow: branch -> PR to `main` -> Vera verifies -> Edward merges. Agents
+  never merge, deploy, or promote. Only Edward merges. Docs: `AGENTS.md` and
+  `docs/deployment-policy.md` (branching workflow only). CI, branch protection,
+  and scripts are unchanged.
 
 - **2026-10-05 cumulative plan matching source change**: Android manual
   matching now keeps fully matched and over-plan items selectable, so several

@@ -100,7 +100,7 @@ Status: **Open** / **Mitigating** / **Accept-pending** / **Accepted**
 | **Impact** | Unreviewed production change, data leak into agent transcripts, irreversible ops mistakes. |
 | **Likelihood** | High without process (many specialists now on the project). |
 | **Severity** | High |
-| **Current controls** | AGENTS.md: production deploy, DNS, key rotation, data mutation, rollback need **current-task** user authorization; historical handoff auth is not standing permission; Amara release block for unsafe invoice path. |
+| **Current controls** | AGENTS.md: agents never deploy or dispatch rollback; production deploy follows Edward's merge to `main`; rollback, DNS, key rotation and production data changes are Edward only; historical handoff auth is not standing permission; Amara release block for unsafe invoice path. |
 | **Gaps** | No single production change log; agent transcripts may retain sensitive snippets if operators paste them. |
 | **Owner** | Gugu (process) + Amara (security gate) + Edward (authorization) |
 | **Mitigation** | Require Edward (or named delegate) scoped yes per production action; Amara mandatory review for Worker/function/RLS/Storage; redact logs before sharing; prefer read-only diagnostics first (Ada + Amara). |
